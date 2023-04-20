@@ -213,7 +213,7 @@ int main(int argc, const char *argv[])
                           g_conf()->osd_data,
                           g_conf()->osd_journal);
 
-  //Checking data folder: create if needed or error if it's not empty
+  //Checking data folder: create if needed or error if it's not empty  /var/lib/ceph/osd/ceph-admin
   DIR *dir = ::opendir(g_conf()->osd_data.c_str());
   if (!dir) {
     std::string cmd("mkdir -p ");
@@ -271,7 +271,8 @@ int main(int argc, const char *argv[])
     os->queue_transaction(ch, std::move(t));
   }
 
-  // create the objects
+  // create the objects 
+  // cfg {size = {v = 1073741824}, block_size = {v = 4096}, repeats = 1, threads = 1, multi_object = false}
   std::vector<ghobject_t> oids;
   if (cfg.multi_object) {
     oids.reserve(cfg.threads);

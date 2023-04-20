@@ -164,9 +164,9 @@ void Log::reopen_log_file()
     m_fd = ::open(m_log_file.c_str(), O_CREAT|O_WRONLY|O_APPEND|O_CLOEXEC, 0644);
     if (m_fd >= 0 && (m_uid || m_gid)) {
       if (::fchown(m_fd, m_uid, m_gid) < 0) {
-	int e = errno;
-	std::cerr << "failed to chown " << m_log_file << ": " << cpp_strerror(e)
-	     << std::endl;
+        int e = errno;
+        std::cerr << "failed to chown " << m_log_file << ": " << cpp_strerror(e)
+             << std::endl;
       }
     }
   }
@@ -260,7 +260,8 @@ void Log::submit_entry(Entry&& e)
     if (m_stop) break; // force addition
     m_cond_loggers.wait(lock);
   }
-
+  
+  //加入队列m_new，然后通知线程刷日志
   m_new.emplace_back(std::move(e));
   m_cond_flusher.notify_all();
   m_queue_mutex_holder = 0;
@@ -272,6 +273,11 @@ void Log::flush()
   m_flush_mutex_holder = pthread_self();
 
   {
+    /*
+    队列m_flush执行swap将m_new里面的log都接了过去。所谓接过去，不过是将指针指向
+    队列内容的事情交给临时队列，m_new 头指针和尾指针置成NULL    做了这件事之后，m_new
+    又变成了空的队列，好心地给其他线程发了广播之后，就可以解锁m_queue_mutex互斥量了。
+    */
     std::scoped_lock lock2(m_queue_mutex);
     m_queue_mutex_holder = pthread_self();
     assert(m_flush.empty());
@@ -280,6 +286,7 @@ void Log::flush()
     m_queue_mutex_holder = 0;
   }
 
+  //主要的写日志的工作就委托给了__flush函数。
   _flush(m_flush, false);
   m_flush_mutex_holder = 0;
 }
@@ -442,6 +449,11 @@ void Log::_flush(EntryVector& t, bool crash)
       m_journald->log_entry(e);
     }
 
+    /*
+    ceph维护了一个m_recent队列，所有的消息都会存放到该队列中去，哪怕优先级比
+    较低，不会打印到日志文件中去。    ceph提供了方法来查看最近的log，这就是log dump方法。
+    ceph daemon /var/run/ceph/ceph-mon.*asok log dump
+    */
     m_recent.push_back(std::move(e));
   }
   t.clear();
@@ -564,6 +576,11 @@ void *Log::entry()
   {
     std::unique_lock lock(m_queue_mutex);
     m_queue_mutex_holder = pthread_self();
+    /*
+    1  m_stop来控制线程是否终止
+    2 如果m_new 这个队列不空，就调用flush，负责写入log
+    3 如果队列空了，条件等待，有新的log出现在队列上，会通知到这个线程
+    */
     while (!m_stop) {
       if (!m_new.empty()) {
         m_queue_mutex_holder = 0;

@@ -27,6 +27,28 @@
 
 #define RW_IO_MAX (INT_MAX & CEPH_PAGE_MASK)
 
+/*
+同步读写：
+
+read：同步读要求块对齐，调用系统函数 pread() 实现，使用fd_directed。
+read_random：分为对齐和不对齐两种情况。对齐使用fd_buffered（open()时告知内核，数据以随机形式访问）。不对齐则强制转成对齐操作，再使用同步读的方式，使用fd_directed+pread()，后续返回时再裁剪为原本不对齐的bl大小。
+write：同步写要求块对齐。同时支持使用fd_direct或者fd_buffered，每次写完后，立刻调用系统函数sync_file_range()（仅刷新offset~length的数据，不更新元数据，提高性能）。
+同步写需要刷新脏页和元数据。
+
+flush()：调用系统函数fdatasync()。
+异步读写：
+
+异步读写时一般只用 fd_direct，因为libaio要求打开方式为O_DIRECT。
+
+aio_read：要求使用!buffered方式（使用fd_direct），否则转为同步读。调用aio_t->preadv()函数。
+
+aio_write：要求块对齐。要求使用!buffered方式（使用fd_direct），否则转为同步写。调用aio_t->pwritev()函数。
+
+异步读写需要通过submit()把io操作提交到磁盘。
+
+aio_submit()：调用io_queue_t::submit_batch()。
+
+*/
 class KernelDevice : public BlockDevice {
 protected:
   std::string path;

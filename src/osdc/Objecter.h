@@ -79,18 +79,26 @@ inline constexpr std::size_t osdc_opvec_len = 2;
 using osdc_opvec = boost::container::small_vector<OSDOp, osdc_opvec_len>;
 
 // -----------------------------------------
-
+/*
+用于操作相关的参数统一封装在该类里，该类可以一次封装多个对象的操作
+*/
 struct ObjectOperation {
-  osdc_opvec ops;
-  int flags = 0;
-  int priority = 0;
+  osdc_opvec ops;  //多个操作
+  int flags = 0;   //操作的标志
+  int priority = 0;//优先级
 
+  //每个操作对应的输出缓存区队列
   boost::container::small_vector<ceph::buffer::list*, osdc_opvec_len> out_bl;
+
+  //每个操作对应的回调函数队列
   boost::container::small_vector<
     fu2::unique_function<void(boost::system::error_code, int,
 			      const ceph::buffer::list& bl) &&>,
     osdc_opvec_len> out_handler;
+
+  //每个操作对应的操作结果队列
   boost::container::small_vector<int*, osdc_opvec_len> out_rval;
+  
   boost::container::small_vector<boost::system::error_code*,
 				 osdc_opvec_len> out_ec;
 
@@ -1760,16 +1768,20 @@ public:
 
   struct OSDSession;
 
+  //封装了对象所在的PG，以及PG对应的OSD列表等地址信息
   struct op_target_t {
     int flags = 0;
 
     epoch_t epoch = 0;  ///< latest epoch we calculated the mapping
 
-    object_t base_oid;
-    object_locator_t base_oloc;
-    object_t target_oid;
-    object_locator_t target_oloc;
+    object_t base_oid;  //读取的对象
+    object_locator_t base_oloc;  //对象的pool信息
+    object_t target_oid;  //最终读取的目标对象
 
+    /*
+    最终目标对象的pool信息,  在这里由于Cache tier的存在，导致产生最终读取的目标和pool的不同。
+    */
+    object_locator_t target_oloc; 
     ///< true if we are directed at base_pgid, not base_oid
     bool precalc_pgid = false;
 
@@ -1891,28 +1903,39 @@ public:
       return nullptr;
   }
 
+  //封装了完成一个操作的相关上下文信息，包括target地址信息、链接信息等
   struct Op : public RefCountedObject {
-    OSDSession *session = nullptr;
-    int incarnation = 0;
+    OSDSession *session = nullptr;  //OSD相关的Session信息
+    int incarnation = 0;  //引用次数
 
-    op_target_t target;
+    op_target_t target;  //地址信息
 
     ConnectionRef con = nullptr;  // for rx buffer only
     uint64_t features = CEPH_FEATURES_SUPPORTED_DEFAULT; // explicitly specified op features
 
-    osdc_opvec ops;
+    osdc_opvec ops;  //对应多个操作的封装
 
-    snapid_t snapid = CEPH_NOSNAP;
+    snapid_t snapid = CEPH_NOSNAP;  //快照的id
+
+    // pool层级的快照信息
     SnapContext snapc;
     ceph::real_time mtime;
 
+    //输出的bufferlist
     ceph::buffer::list *outbl = nullptr;
+
+    //每个操作对应的bufferlist
     boost::container::small_vector<ceph::buffer::list*, osdc_opvec_len> out_bl;
+
+    //每个操作对应的回调函数
     boost::container::small_vector<
       fu2::unique_function<void(boost::system::error_code, int,
 				const ceph::buffer::list& bl) &&>,
       osdc_opvec_len> out_handler;
+
+    //每个操作对应的输出结果
     boost::container::small_vector<int*, osdc_opvec_len> out_rval;
+    
     boost::container::small_vector<boost::system::error_code*,
 				   osdc_opvec_len> out_ec;
 

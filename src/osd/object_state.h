@@ -5,6 +5,11 @@
 
 #include "osd_types.h"
 
+/*
+在object_info_t基础上添加了一个字段exists，用来标记对象是否存在。
+为什么要加一个额外的bool变量来标记呢？因为object_info_t可能是从缓存的
+attrs[OI_ATTR]中获取的，并不能确定对象是否存在。
+*/
 struct ObjectState {
   object_info_t oi;
   bool exists;         ///< the stored object exists (i.e., we will remember the object_info_t)

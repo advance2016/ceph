@@ -55,6 +55,11 @@ void put_with_id(PrimaryLogPG *pg, uint64_t id);
 
 struct inconsistent_snapset_wrapper;
 
+/*
+该类继承自PG类，PGBackend::Listener（该类是一个抽象类）类PG类处理相关状态的维护，
+以及实现PG层面的功能，核心功能是用boost库的statechart状态机来做PG状态转换。它
+实现了PG内的数据读写等功能。
+*/
 class PrimaryLogPG : public PG, public PGBackend::Listener {
   friend class OSD;
   friend class Watch;

@@ -35,6 +35,7 @@ enum {
  * Finisher asynchronously completes Contexts, which are simple classes
  * representing callbacks, in a dedicated worker thread. Enqueuing
  * contexts to complete is thread-safe.
+   用来处理异步回调函数的线程
  */
 class Finisher {
   CephContext *cct;

@@ -16,7 +16,7 @@ using ceph::decode;
 using ceph::encode;
 
 void decode_str_str_map_to_bl(bufferlist::const_iterator& p,
-			      bufferlist *out)
+                  bufferlist *out)
 {
   auto start = p;
   __u32 n;
@@ -35,7 +35,7 @@ void decode_str_str_map_to_bl(bufferlist::const_iterator& p,
 }
 
 void decode_str_set_to_bl(bufferlist::const_iterator& p,
-			  bufferlist *out)
+              bufferlist *out)
 {
   auto start = p;
   __u32 n;
@@ -69,11 +69,11 @@ void Transaction::dump(ceph::Formatter *f)
       break;
     case Transaction::OP_CREATE:
       {
-	coll_t cid = i.get_cid(op->cid);
-	ghobject_t oid = i.get_oid(op->oid);
-	f->dump_string("op_name", "create");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+        coll_t cid = i.get_cid(op->cid);
+        ghobject_t oid = i.get_oid(op->oid);
+        f->dump_string("op_name", "create");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
       }
       break;
 
@@ -81,9 +81,9 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	f->dump_string("op_name", "touch");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+        f->dump_string("op_name", "touch");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
       }
       break;
       
@@ -93,11 +93,11 @@ void Transaction::dump(ceph::Formatter *f)
         ghobject_t oid = i.get_oid(op->oid);
         uint64_t off = op->off;
         uint64_t len = op->len;
-	bufferlist bl;
-	i.decode_bl(bl);
-	f->dump_string("op_name", "write");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+        bufferlist bl;
+        i.decode_bl(bl);
+        f->dump_string("op_name", "write");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
         f->dump_unsigned("length", len);
         f->dump_unsigned("offset", off);
         f->dump_unsigned("bufferlist length", bl.length());
@@ -110,18 +110,18 @@ void Transaction::dump(ceph::Formatter *f)
         ghobject_t oid = i.get_oid(op->oid);
         uint64_t off = op->off;
         uint64_t len = op->len;
-	f->dump_string("op_name", "zero");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+        f->dump_string("op_name", "zero");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
         f->dump_unsigned("offset", off);
-	f->dump_unsigned("length", len);
+        f->dump_unsigned("length", len);
       }
       break;
       
     case Transaction::OP_TRIMCACHE:
       {
         // deprecated, no-op
-	f->dump_string("op_name", "trim_cache");
+    f->dump_string("op_name", "trim_cache");
       }
       break;
       
@@ -130,10 +130,10 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
         uint64_t off = op->off;
-	f->dump_string("op_name", "truncate");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->dump_unsigned("offset", off);
+        f->dump_string("op_name", "truncate");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
+        f->dump_unsigned("offset", off);
       }
       break;
       
@@ -141,9 +141,9 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	f->dump_string("op_name", "remove");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+        f->dump_string("op_name", "remove");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
       }
       break;
       
@@ -152,13 +152,13 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
         string name = i.decode_string();
-	bufferlist bl;
-	i.decode_bl(bl);
-	f->dump_string("op_name", "setattr");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->dump_string("name", name);
-	f->dump_unsigned("length", bl.length());
+        bufferlist bl;
+        i.decode_bl(bl);
+        f->dump_string("op_name", "setattr");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
+        f->dump_string("name", name);
+        f->dump_unsigned("length", bl.length());
       }
       break;
       
@@ -166,17 +166,17 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	map<string, bufferptr> aset;
-	i.decode_attrset(aset);
-	f->dump_string("op_name", "setattrs");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->open_object_section("attr_lens");
-	for (map<string,bufferptr>::iterator p = aset.begin();
-	    p != aset.end(); ++p) {
-	  f->dump_unsigned(p->first.c_str(), p->second.length());
-	}
-	f->close_section();
+        map<string, bufferptr> aset;
+        i.decode_attrset(aset);
+        f->dump_string("op_name", "setattrs");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
+        f->open_object_section("attr_lens");
+        for (map<string,bufferptr>::iterator p = aset.begin();
+            p != aset.end(); ++p) {
+          f->dump_unsigned(p->first.c_str(), p->second.length());
+        }
+        f->close_section();
       }
       break;
 
@@ -185,10 +185,10 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
         string name = i.decode_string();
-	f->dump_string("op_name", "rmattr");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->dump_string("name", name);
+        f->dump_string("op_name", "rmattr");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
+        f->dump_string("name", name);
       }
       break;
 
@@ -196,9 +196,9 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	f->dump_string("op_name", "rmattrs");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+        f->dump_string("op_name", "rmattrs");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("oid") << oid;
       }
       break;
       
@@ -207,10 +207,10 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
         ghobject_t noid = i.get_oid(op->dest_oid);
-	f->dump_string("op_name", "clone");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("src_oid") << oid;
-	f->dump_stream("dst_oid") << noid;
+        f->dump_string("op_name", "clone");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("src_oid") << oid;
+        f->dump_stream("dst_oid") << noid;
       }
       break;
 
@@ -221,12 +221,12 @@ void Transaction::dump(ceph::Formatter *f)
         ghobject_t noid = i.get_oid(op->dest_oid);
         uint64_t off = op->off;
         uint64_t len = op->len;
-	f->dump_string("op_name", "clonerange");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("src_oid") << oid;
-	f->dump_stream("dst_oid") << noid;
-	f->dump_unsigned("offset", off);
-	f->dump_unsigned("len", len);
+        f->dump_string("op_name", "clonerange");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("src_oid") << oid;
+        f->dump_stream("dst_oid") << noid;
+        f->dump_unsigned("offset", off);
+        f->dump_unsigned("len", len);
       }
       break;
 
@@ -238,27 +238,27 @@ void Transaction::dump(ceph::Formatter *f)
         uint64_t srcoff = op->off;
         uint64_t len = op->len;
         uint64_t dstoff = op->dest_off;
-	f->dump_string("op_name", "clonerange2");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("src_oid") << oid;
-	f->dump_stream("dst_oid") << noid;
-	f->dump_unsigned("src_offset", srcoff);
-	f->dump_unsigned("len", len);
-	f->dump_unsigned("dst_offset", dstoff);
+        f->dump_string("op_name", "clonerange2");
+        f->dump_stream("collection") << cid;
+        f->dump_stream("src_oid") << oid;
+        f->dump_stream("dst_oid") << noid;
+        f->dump_unsigned("src_offset", srcoff);
+        f->dump_unsigned("len", len);
+        f->dump_unsigned("dst_offset", dstoff);
       }
       break;
 
     case Transaction::OP_MKCOLL:
       {
         coll_t cid = i.get_cid(op->cid);
-	f->dump_string("op_name", "mkcoll");
-	f->dump_stream("collection") << cid;
+        f->dump_string("op_name", "mkcoll");
+        f->dump_stream("collection") << cid;
       }
       break;
 
     case Transaction::OP_COLL_HINT:
       {
-	using ceph::decode;
+    using ceph::decode;
         coll_t cid = i.get_cid(op->cid);
         uint32_t type = op->hint;
         f->dump_string("op_name", "coll_hint");
@@ -280,18 +280,18 @@ void Transaction::dump(ceph::Formatter *f)
 
     case Transaction::OP_COLL_SET_BITS:
       {
-	coll_t cid = i.get_cid(op->cid);
-	f->dump_string("op_name", "coll_set_bits");
-	f->dump_stream("collection") << cid;
-	f->dump_unsigned("bits", op->split_bits);
+        coll_t cid = i.get_cid(op->cid);
+        f->dump_string("op_name", "coll_set_bits");
+        f->dump_stream("collection") << cid;
+        f->dump_unsigned("bits", op->split_bits);
       }
       break;
 
     case Transaction::OP_RMCOLL:
       {
         coll_t cid = i.get_cid(op->cid);
-	f->dump_string("op_name", "rmcoll");
-	f->dump_stream("collection") << cid;
+        f->dump_string("op_name", "rmcoll");
+        f->dump_stream("collection") << cid;
       }
       break;
 
@@ -300,10 +300,10 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t ocid = i.get_cid(op->cid);
         coll_t ncid = i.get_cid(op->dest_cid);
         ghobject_t oid = i.get_oid(op->oid);
-	f->dump_string("op_name", "collection_add");
-	f->dump_stream("src_collection") << ocid;
-	f->dump_stream("dst_collection") << ncid;
-	f->dump_stream("oid") << oid;
+    f->dump_string("op_name", "collection_add");
+    f->dump_stream("src_collection") << ocid;
+    f->dump_stream("dst_collection") << ncid;
+    f->dump_stream("oid") << oid;
       }
       break;
 
@@ -311,9 +311,9 @@ void Transaction::dump(ceph::Formatter *f)
        {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	f->dump_string("op_name", "collection_remove");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+    f->dump_string("op_name", "collection_remove");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("oid") << oid;
        }
       break;
 
@@ -322,11 +322,11 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t ocid = i.get_cid(op->cid);
         coll_t ncid = i.get_cid(op->dest_cid);
         ghobject_t oid = i.get_oid(op->oid);
-	f->open_object_section("collection_move");
-	f->dump_stream("src_collection") << ocid;
-	f->dump_stream("dst_collection") << ncid;
-	f->dump_stream("oid") << oid;
-	f->close_section();
+    f->open_object_section("collection_move");
+    f->dump_stream("src_collection") << ocid;
+    f->dump_stream("dst_collection") << ncid;
+    f->dump_stream("oid") << oid;
+    f->close_section();
        }
       break;
 
@@ -334,12 +334,12 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         string name = i.decode_string();
-	bufferlist bl;
-	i.decode_bl(bl);
-	f->dump_string("op_name", "collection_setattr");
-	f->dump_stream("collection") << cid;
-	f->dump_string("name", name);
-	f->dump_unsigned("length", bl.length());
+    bufferlist bl;
+    i.decode_bl(bl);
+    f->dump_string("op_name", "collection_setattr");
+    f->dump_stream("collection") << cid;
+    f->dump_string("name", name);
+    f->dump_unsigned("length", bl.length());
       }
       break;
 
@@ -347,15 +347,15 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         string name = i.decode_string();
-	f->dump_string("op_name", "collection_rmattr");
-	f->dump_stream("collection") << cid;
-	f->dump_string("name", name);
+    f->dump_string("op_name", "collection_rmattr");
+    f->dump_stream("collection") << cid;
+    f->dump_string("name", name);
       }
       break;
 
     case Transaction::OP_COLL_RENAME:
       {
-	f->dump_string("op_name", "collection_rename");
+    f->dump_string("op_name", "collection_rename");
       }
       break;
 
@@ -363,9 +363,9 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	f->dump_string("op_name", "omap_clear");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
+    f->dump_string("op_name", "omap_clear");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("oid") << oid;
       }
       break;
 
@@ -373,17 +373,17 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	map<string, bufferlist> aset;
-	i.decode_attrset(aset);
-	f->dump_string("op_name", "omap_setkeys");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->open_object_section("attr_lens");
-	for (map<string, bufferlist>::iterator p = aset.begin();
-	    p != aset.end(); ++p) {
-	  f->dump_unsigned(p->first.c_str(), p->second.length());
-	}
-	f->close_section();
+    map<string, bufferlist> aset;
+    i.decode_attrset(aset);
+    f->dump_string("op_name", "omap_setkeys");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("oid") << oid;
+    f->open_object_section("attr_lens");
+    for (map<string, bufferlist>::iterator p = aset.begin();
+        p != aset.end(); ++p) {
+      f->dump_unsigned(p->first.c_str(), p->second.length());
+    }
+    f->close_section();
       }
       break;
 
@@ -391,16 +391,16 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	set<string> keys;
-	i.decode_keyset(keys);
-	f->dump_string("op_name", "omap_rmkeys");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->open_array_section("attrs");
-	for (auto& k : keys) {
-	  f->dump_string("", k.c_str());
-	}
-	f->close_section();
+    set<string> keys;
+    i.decode_keyset(keys);
+    f->dump_string("op_name", "omap_rmkeys");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("oid") << oid;
+    f->open_array_section("attrs");
+    for (auto& k : keys) {
+      f->dump_string("", k.c_str());
+    }
+    f->close_section();
       }
       break;
 
@@ -408,12 +408,12 @@ void Transaction::dump(ceph::Formatter *f)
       {
         coll_t cid = i.get_cid(op->cid);
         ghobject_t oid = i.get_oid(op->oid);
-	bufferlist bl;
-	i.decode_bl(bl);
-	f->dump_string("op_name", "omap_setheader");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->dump_stream("header_length") << bl.length();
+    bufferlist bl;
+    i.decode_bl(bl);
+    f->dump_string("op_name", "omap_setheader");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("oid") << oid;
+    f->dump_stream("header_length") << bl.length();
       }
       break;
 
@@ -423,11 +423,11 @@ void Transaction::dump(ceph::Formatter *f)
         uint32_t bits = op->split_bits;
         uint32_t rem = op->split_rem;
         coll_t dest = i.get_cid(op->dest_cid);
-	f->dump_string("op_name", "op_split_collection_create");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("bits") << bits;
-	f->dump_stream("rem") << rem;
-	f->dump_stream("dest") << dest;
+    f->dump_string("op_name", "op_split_collection_create");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("bits") << bits;
+    f->dump_stream("rem") << rem;
+    f->dump_stream("dest") << dest;
       }
       break;
 
@@ -437,11 +437,11 @@ void Transaction::dump(ceph::Formatter *f)
         uint32_t bits = op->split_bits;
         uint32_t rem = op->split_rem;
         coll_t dest = i.get_cid(op->dest_cid);
-	f->dump_string("op_name", "op_split_collection");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("bits") << bits;
-	f->dump_stream("rem") << rem;
-	f->dump_stream("dest") << dest;
+    f->dump_string("op_name", "op_split_collection");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("bits") << bits;
+    f->dump_stream("rem") << rem;
+    f->dump_stream("dest") << dest;
       }
       break;
 
@@ -450,10 +450,10 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t cid = i.get_cid(op->cid);
         uint32_t bits = op->split_bits;
         coll_t dest = i.get_cid(op->dest_cid);
-	f->dump_string("op_name", "op_merge_collection");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("dest") << dest;
-	f->dump_stream("bits") << bits;
+    f->dump_string("op_name", "op_merge_collection");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("dest") << dest;
+    f->dump_stream("bits") << bits;
       }
       break;
 
@@ -464,11 +464,11 @@ void Transaction::dump(ceph::Formatter *f)
         string first, last;
         first = i.decode_string();
         last = i.decode_string();
-	f->dump_string("op_name", "op_omap_rmkeyrange");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("oid") << oid;
-	f->dump_string("first", first);
-	f->dump_string("last", last);
+    f->dump_string("op_name", "op_omap_rmkeyrange");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("oid") << oid;
+    f->dump_string("first", first);
+    f->dump_string("last", last);
       }
       break;
 
@@ -478,11 +478,11 @@ void Transaction::dump(ceph::Formatter *f)
         ghobject_t old_oid = i.get_oid(op->oid);
         coll_t new_cid = i.get_cid(op->dest_cid);
         ghobject_t new_oid = i.get_oid(op->dest_oid);
-	f->dump_string("op_name", "op_coll_move_rename");
-	f->dump_stream("old_collection") << old_cid;
-	f->dump_stream("old_oid") << old_oid;
-	f->dump_stream("new_collection") << new_cid;
-	f->dump_stream("new_oid") << new_oid;
+    f->dump_string("op_name", "op_coll_move_rename");
+    f->dump_stream("old_collection") << old_cid;
+    f->dump_stream("old_oid") << old_oid;
+    f->dump_stream("new_collection") << new_cid;
+    f->dump_stream("new_oid") << new_oid;
       }
       break;
 
@@ -491,13 +491,13 @@ void Transaction::dump(ceph::Formatter *f)
         coll_t cid = i.get_cid(op->cid);
         ghobject_t old_oid = i.get_oid(op->oid);
         ghobject_t new_oid = i.get_oid(op->dest_oid);
-	f->dump_string("op_name", "op_coll_move_rename");
-	f->dump_stream("collection") << cid;
-	f->dump_stream("old_oid") << old_oid;
-	f->dump_stream("new_oid") << new_oid;
+    f->dump_string("op_name", "op_coll_move_rename");
+    f->dump_stream("collection") << cid;
+    f->dump_stream("old_oid") << old_oid;
+    f->dump_stream("new_oid") << new_oid;
       }
       break;
-	
+    
     case Transaction::OP_SETALLOCHINT:
       {
         coll_t cid = i.get_cid(op->cid);

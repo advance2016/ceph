@@ -88,12 +88,14 @@ public:
 
   /*
    * Mapping from legacy config option names to class members
+   * 将ceph_options中的Option的name与对应的md_config_t中的成员指针作为key-value保存
    */
   std::map<std::string_view, member_ptr_t> legacy_values;
 
   /**
    * The configuration schema, in the form of Option objects describing
    * possible settings.
+   * schema保存ceph_options中的所有Option参数
    */
   std::map<std::string_view, const Option&> schema;
 
@@ -343,6 +345,7 @@ private:
   bool do_show_config = false;
   std::string do_show_config_value;
 
+  //日志选项
   std::vector<Option> subsys_options;
 
 public:

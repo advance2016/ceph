@@ -149,18 +149,18 @@ struct Option {
     std::chrono::milliseconds,
     size_t,
     uuid_d>;
-  const std::string name;
-  const type_t type;
-  const level_t level;
+  const std::string name;   // 参数名
+  const type_t type;        // 参数类型
+  const level_t level;      // 参数级别
 
-  std::string desc;
+  std::string desc;         // 该参数的含义
   std::string long_desc;
 
   unsigned flags = 0;
 
   int subsys = -1; // if >= 0, we are a subsys debug level
 
-  value_t value;
+  value_t value;            // 参数值
   value_t daemon_value;
 
   static std::string to_str(const value_t& v);
@@ -171,6 +171,7 @@ struct Option {
   // Additionally: "common" for settings that exist in any Ceph code.  Do
   // not use common for settings that are just shared some places: for those
   // places, list them.
+  // services即服务类型，比如"mds"
   std::vector<const char*> services;
 
   // Topics like:
@@ -180,6 +181,7 @@ struct Option {
   //                environment/workload to get best performance.
   std::vector<const char*> tags;
 
+  // 该参数对应的类似的参数
   std::vector<const char*> see_also;
 
   value_t min, max;

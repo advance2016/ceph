@@ -24,20 +24,35 @@
 
 #include "Stack.h"
 
+/*
+类PosixWorker实现了 Worker接口。
+Worker可以理解为工作者线程，其一一对应一个thread线程。为了兼容其它协议的设计，
+对应线程定义在了PosixNetworkStack类里。通过上述分析可知，一个Worker对应一个线程，
+同时对应一个 事件处理中心EventCenter类。
+*/
 class PosixWorker : public Worker {
   ceph::NetHandler net;
   void initialize() override;
  public:
   PosixWorker(CephContext *c, unsigned i)
       : Worker(c, i), net(c) {}
+  /*
+  实现了Server端的sock的功能：底层调用了NetHandler的功能，实现了socket 的 bind ，
+  listen等操作，最后返回ServerSocket对象。
+  */
   int listen(entity_addr_t &sa,
 	     unsigned addr_slot,
 	     const SocketOptions &opt,
 	     ServerSocket *socks) override;
+
+  /*
+  实现了主动连接请求。返回ConnectedSocket对象。
+  */
   int connect(const entity_addr_t &addr, const SocketOptions &opts, ConnectedSocket *socket) override;
 };
 
 class PosixNetworkStack : public NetworkStack {
+  //线程池
   std::vector<std::thread> threads;
 
   virtual Worker* create_worker(CephContext *c, unsigned worker_id) override {

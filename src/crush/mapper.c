@@ -211,9 +211,14 @@ static int bucket_straw_choose(const struct crush_bucket_straw *bucket,
 	__u64 draw;
 
 	for (i = 0; i < bucket->h.size; i++) {
+	    //对每个item，计算hash值
 		draw = crush_hash32_3(bucket->h.hash, x, bucket->h.items[i], r);
+
+		//获取低16位，并乘以权重相关的修正值
 		draw &= 0xffff;
 		draw *= bucket->straws[i];
+
+		//选取draw值最大的item为选中的item
 		if (i == 0 || draw > high_draw) {
 			high = i;
 			high_draw = draw;
@@ -361,7 +366,10 @@ static int bucket_straw2_choose(const struct crush_bucket_straw2 *bucket,
 	return bucket->h.items[high];
 }
 
-
+/*
+函数crush_bucket_choose根据不同的类型bucket，选择不同的算法来实现从bucket中
+选出item, 输入参数x为pgid, r为副本数
+*/
 static int crush_bucket_choose(const struct crush_bucket *in,
 			       struct crush_work_bucket *work,
 			       int x, int r,
@@ -434,6 +442,8 @@ static int is_out(const struct crush_map *map,
  * @vary_r: pass r to recursive calls
  * @out2: second output vector for leaf items (if @recurse_to_leaf)
  * @parent_r: r value passed from the parent
+ 函数调用crush_bucket_choose选择需要的副本数，并对选择出来的OSD做了相关的冲
+ 突检查，如果冲突或者失效或者过载，继续选择新的OSD。
  */
 static int crush_choose_firstn(const struct crush_map *map,
 			       struct crush_work *work,
@@ -867,13 +877,16 @@ void crush_init_workspace(const struct crush_map *m, void *v) {
 /**
  * crush_do_rule - calculate a mapping with the given input and rule
  * @map: the crush_map
- * @ruleno: the rule id
- * @x: hash input
- * @result: pointer to result vector
- * @result_max: maximum result size
- * @weight: weight vector (for map leaves)
- * @weight_max: size of weight vector
+ * @ruleno: the rule id, ruleset的号
+ * @x: hash input, 输入，一般是pg的id
+ * @result: pointer to result vector, 输出osd列表
+ * @result_max: maximum result size, 输出osd列表的数量
+ * @weight: weight vector (for map leaves), 所有osd的权重，通过它来判断osd是否out
+ * @weight_max: size of weight vector, 所有osd的数量
  * @cwin: Pointer to at least map->working_size bytes of memory or NULL.
+ * 完成了CRUSH算法的选择过程 
+ * 根据step的数量，循环调用相关的函数选择bucket。如果是深度优先，就调用函数
+ * crush_choose_firstn，如果是广度优先，就调用函数crush_choose_indep来选择。
  */
 int crush_do_rule(const struct crush_map *map,
 		  int ruleno, int x, int *result, int result_max,

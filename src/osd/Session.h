@@ -125,10 +125,15 @@ private:
 };
 
 
-
+/*
+Ceph保存着发生在Monitors、OSD和PG上的每一次状态变更的历史信息（称为epoch）
+*/
 struct Session : public RefCountedObject {
+  //peer实例的名字
   EntityName entity_name;
   OSDCap caps;
+
+  //相关的Connection
   ConnectionRef con;
   entity_addr_t socket_addr;
   WatchConState wstate;
@@ -137,7 +142,10 @@ struct Session : public RefCountedObject {
     ceph::make_mutex("Session::session_dispatch_lock");
   boost::intrusive::list<OpRequest> waiting_on_map;
 
+  //通过消息向外通知的 epoch
   ceph::spinlock sent_epoch_lock;
+
+  //发送对端的epoch
   epoch_t last_sent_epoch = 0;
 
   /// protects backoffs; orders inside Backoff::lock *and* PG::backoff_lock

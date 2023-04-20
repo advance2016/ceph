@@ -91,10 +91,15 @@ int main(int argc, const char **argv)
   {
     ret = rados.pool_create(pool_name);
     if (ret < 0) {
-      std::cerr << "couldn't create pool! error " << ret << std::endl;
-      return EXIT_FAILURE;
+      if (ret == -EEXIST) {
+        std::cout << "pool " << pool_name << "is existed" << std::endl;
+      } else {
+          std::cerr << "couldn't create pool! error " << ret << std::endl;
+          return EXIT_FAILURE;
+      }
+    } else {
+        std::cout << "we just created a new pool named " << pool_name << std::endl;
     }
-    std::cout << "we just created a new pool named " << pool_name << std::endl;
   }
 
   /*

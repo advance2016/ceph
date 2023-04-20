@@ -30,6 +30,19 @@
 
 class RadosClient;
 
+
+/*
+类IoCtxImpl是pool相关的上下文信息，一个pool对应一个IoCtxImpl对象。librados中所有
+关于IO操作的API都设计在librados::IoCtx中，接口的真正实现在IoCtxImpl中。可以在该pool
+里创建，删除对象，完成对象数据读写等各种操作，包括同步和异步的实现。其处理过程都
+比较简单，而且过程类似：
+1）把请求封装成ObjectOperation类（该类定义在osdc/Objecter.h中）。
+2）把相关的pool信息添加到里面，封装成Objecter::Op对像。
+3）调用函数objecter->op_submit发送给相应的OSD，如果是同步操作，就等待操作
+4）操作完成后，调用相应的回调函数。
+完成。如果是异步操作，就不用等待，直接返回。当操作完成后，调用相应的回调函数通知。
+*/
+
 struct librados::IoCtxImpl {
   std::atomic<uint64_t> ref_cnt = { 0 };
   RadosClient *client = nullptr;

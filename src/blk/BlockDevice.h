@@ -43,6 +43,18 @@
 #define F_LINUX_SPECIFIC_BASE 1024
 #define F_SET_FILE_RW_HINT         (F_LINUX_SPECIFIC_BASE + 14)
 #endif
+/*
+使用 write hint 描述数据的更新频率，即按照数据更新的相对频率，将数据的更新频率分为 4 个级别：short、medium、long与extrem。
+
+当SSD设备支持的 stream 的数量达到或超过 4 时
+
+short 对应 stream id 1
+medium 对应 stream id 2
+long 对应 stream id 3
+extrem 对应 stream id 4
+当用户未显式指定数据的更新频率时，其最终默认使用 stream id 0
+
+*/
 // These values match Linux definition
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fcntl.h#n56
 #define  WRITE_LIFE_NOT_SET  	0 	// No hint information set
@@ -143,6 +155,7 @@ public:
 };
 
 
+//BlockDevice 是所有块设备的基类，定义了块设备必备的一些接口，比如 read、write等
 class BlockDevice {
 public:
   CephContext* cct;

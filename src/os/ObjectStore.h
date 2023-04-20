@@ -60,6 +60,7 @@ typedef uint32_t osflagbits_t;
 const int SKIP_JOURNAL_REPLAY = 1 << 0;
 const int SKIP_MOUNT_OMAP = 1 << 1;
 
+//对象存储系统抽象操作接口。所有的对象存储引擎都有继承并实现它定义的接口
 class ObjectStore {
 protected:
   std::string path;
@@ -110,11 +111,21 @@ public:
    *
    * This appears to be called with nothing locked.
    */
+    /**
+     * Fetch Object Store statistics.
+     *
+     * 返回延时和响应时间。write latency and apply times
+     *
+     * 此调用不会获取锁。即调用的瞬间可能 OS 状态发生改变，但获取的结果已经过时
+     *
+     * @param 
+     * @return objectstore_perf_stat_t 实例
+     */
   virtual objectstore_perf_stat_t get_cur_stats() = 0;
 
   /**
    * Fetch Object Store performance counters.
-   *
+   * 获取 OS 中的 perf_counters 对象指针。
    *
    * This appears to be called with nothing locked.
    */
@@ -219,16 +230,28 @@ public:
    *
    */
 
-
+  /**
+   * @param ch 集合句柄，用于获取对应 collection
+   * @param t 事务，封装一组 op 操作，可以是不同 hobj
+   * @param op 
+   * @param handle 
+   * @return 0 for success, other for failure
+   */
   int queue_transaction(CollectionHandle& ch,
-			Transaction&& t,
-			TrackedOpRef op = TrackedOpRef(),
-			ThreadPool::TPHandle *handle = NULL) {
+            Transaction&& t,
+            TrackedOpRef op = TrackedOpRef(),
+            ThreadPool::TPHandle *handle = NULL) {
     std::vector<Transaction> tls;
     tls.push_back(std::move(t));
     return queue_transactions(ch, tls, op, handle);
   }
 
+  /*
+  queue_transactions是所有ObjectStore更新操作的接口。更新相关的操作（例如创建
+  一个对象，修改属性，写数据等）都是以事务的方式提交给ObjectStore，该函数被重载
+  成各种不同的接口。其参数为：
+  ● list<Transaction*>& tls要提交的事务，或者事务的列表。
+  */
   virtual int queue_transactions(
     CollectionHandle& ch, std::vector<Transaction>& tls,
     TrackedOpRef op = TrackedOpRef(),
@@ -237,31 +260,59 @@ public:
 
  public:
   ObjectStore(CephContext* cct,
-	      const std::string& path_) : path(path_), cct(cct) {}
+          const std::string& path_) : path(path_), cct(cct) {}
   virtual ~ObjectStore() {}
 
   // no copying
   explicit ObjectStore(const ObjectStore& o) = delete;
   const ObjectStore& operator=(const ObjectStore& o) = delete;
 
-  // versioning
+  // versioning 仅在 FileStore 中使用
   virtual int upgrade() {
     return 0;
   }
 
+  //打印 OS 的使用情况，可以通过 OSD 使用 dump_objectstore_kv_stats 命令调用。
+  //ceph daemon /var/run/ceph/ceph-osd.0.asok dump_objectstore_kv_stats
   virtual void get_db_statistics(ceph::Formatter *f) { }
+
+  //generate_db_histogram @param f 输出流
+  //ceph daemon /var/run/ceph/ceph-osd.0.asok calc_objectstore_db_histogram
   virtual void generate_db_histogram(ceph::Formatter *f) { }
+
+  //清空 onode 和 buffer 缓存，因为缓存从磁盘读取，所以也不需要刷新到磁盘，直接清空缓存即可完成动作。
+  /**
+   * @param os 输出流
+   * @return 0 for success, other for failure
+  */
   virtual int flush_cache(std::ostream *os = NULL) { return -1; }
+
+  /**
+   * @param f, os 输出流
+   * @return
+   */
   virtual void dump_perf_counters(ceph::Formatter *f) {}
   virtual void dump_cache_stats(ceph::Formatter *f) {}
   virtual void dump_cache_stats(std::ostream& os) {}
 
+  /** 返回 OS 类型，如 bluestore。
+   * @param
+   * @return string 类型字符串
+   */
   virtual std::string get_type() = 0;
 
-  // mgmt
+  // mgmt mount 前的预测试，在 OSD::pre_init()中被调用，如若发生错误，则说明 ObjectStore::mount() 不可用。
   virtual bool test_mount_in_use() = 0;
+
+  //加载objectsotre相关的系统信息, 挂载/卸载 OS。在 mkfs() 之后使用。
   virtual int mount() = 0;
   virtual int umount() = 0;
+
+  //对 OS 进行检查或者修复。
+  /**
+   * @param deep true for FSCK_DEEP, false for FSCK_REGULAR
+   * @return 0 for success, other for false
+   */
   virtual int fsck(bool deep) {
     return -EOPNOTSUPP;
   }
@@ -271,10 +322,19 @@ public:
   virtual int quick_fix() {
     return -EOPNOTSUPP;
   }
-
+  
+  /*
+  开启缓存。BlueStore 支持自己管理 onode 和 buffer 缓存。此函数用于创建缓存实例，num 是创建的总实例数量。在《Ceph之rados设计原理与实现》p101 页介绍了每个 BlueStore 包含多个 Cache 实例，每个 OSD 相应地会设置多个 PG 工作队列，BlueStore 中的 Cache 实例个数与之对应。
+  
+  此函数在 BlueStore create() 时被调用。
+  */
+  /**
+   * @param num cache 实例总数
+   * @return 
+   */
   virtual void set_cache_shards(unsigned num) { }
 
-  /**
+  /** BlueStore中支持任何长度的 name，所以此函数在 BLueStore 中始终返回0。
    * Returns 0 if the hobject is valid, -error otherwise
    *
    * Errors:
@@ -282,25 +342,44 @@ public:
    */
   virtual int validate_hobject_key(const hobject_t &obj) const = 0;
 
+  //BlueStore 内部对 xattr name 的长度也没有真正限制。这里返回 256。
   virtual unsigned get_max_attr_name_length() = 0;
+
+  //创建objectstore相关的系统信息, OS 格式化。在 create() 之后使用。内部提供检测机制，支持对一个 OSD 目录多次调用 mkfs()。
   virtual int mkfs() = 0;  // wipe
+
+  //BlueStore 不支持。
   virtual int mkjournal() = 0; // journal only
   virtual bool needs_journal() = 0;  //< requires a journal
   virtual bool wants_journal() = 0;  //< prefers a journal
   virtual bool allows_journal() = 0; //< allows a journal
+
   virtual void prepare_for_fast_shutdown() {}
   virtual bool has_null_manager() const { return false; }
+
   // return store min allocation size, if applicable
+  //返回最小分配空间。默认 4KB。支持配置文件修改：bluestore_min_alloc_size，bluestore_min_alloc_size_hdd，bluestore_min_alloc_size_ssd。
+  /**
+   * @param 
+   * @return uint64_t 最小分配空间的字节长度
+   */
   virtual uint64_t get_min_alloc_size() const {
     return 0;
   }
 
   /// enumerate hardware devices (by 'devname', e.g., 'sda' as in /sys/block/sda)
+  // 枚举所有磁盘设备。
+  /**
+  * @param devls 记录所有磁盘设备的位置
+  * @return 0 for success, other for failure
+  */
+  // ceph daemon /var/run/ceph/ceph-osd.0.asok list_devices
   virtual int get_devices(std::set<std::string> *devls) {
     return -EOPNOTSUPP;
   }
 
   /// true if a txn is readable immediately after it is queued.
+  //BlueStore 不支持。
   virtual bool is_sync_onreadable() const {
     return true;
   }
@@ -315,6 +394,7 @@ public:
    *
    * @return true for HDD, false for SSD
    */
+   //验证 SLOW 设备是 HDD 还是 SSD，ture 为 HDD，false 为 SSD。
   virtual bool is_rotational() {
     return true;
   }
@@ -328,14 +408,17 @@ public:
    *
    * @return true for HDD, false for SSD
    */
+   //BlueStore 中检查 WAL 设备是 HDD 还是 SSD，true 为 HDD，false 为 SSD。
   virtual bool is_journal_rotational() {
     return true;
   }
 
+  //调用 is_rotational() 函数，查询设备的类别：HDD 或者 SSD
   virtual std::string get_default_device_class() {
     return is_rotational() ? "hdd" : "ssd";
   }
 
+  //暂不可用
   virtual int get_numa_node(
     int *numa_node,
     std::set<int> *nodes,
@@ -343,15 +426,20 @@ public:
     return -EOPNOTSUPP;
   }
 
-
+  //BlueStore 不支持
   virtual bool can_sort_nibblewise() {
     return false;   // assume a backend cannot, unless it says otherwise
   }
 
+  //获取objectstore系统信息
+  //可以使用 ceph-objectstore-tool 工具查看 statfs 信息
+  // ceph-objectstore-tool --data-path /root/ceph/build/dev/osd0/ --op statfs --no-mon-config
   virtual int statfs(struct store_statfs_t *buf,
-		     osd_alert_list_t* alerts = nullptr) = 0;
+             osd_alert_list_t* alerts = nullptr) = 0;
+
+  //获取池文件系统信息
   virtual int pool_statfs(uint64_t pool_id, struct store_statfs_t *buf,
-			  bool *per_pool_omap) = 0;
+              bool *per_pool_omap) = 0;
 
   virtual void collect_metadata(std::map<std::string,std::string> *pm) { }
 
@@ -369,8 +457,15 @@ public:
    * @param value value (e.g., a uuid rendered as a std::string)
    * @returns 0 for success, or an error code
    */
+   /*
+   BlueStore 中向块设备的超级块写入元数据，以键值对形式。
+   
+   注：BlueStore 的超级块是 SLOW 设备的第一个 4KB 块。BlueFS 的超级块是 DB 设备（当 DB 不存在时，使用 SLOW设备）的第二个 4KB 块。
+   可以使用多种工具查看，这里给出 ceph-objectstore-tool 工具的查看命令：
+   ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-0/ --op dump-super
+   */
   virtual int write_meta(const std::string& key,
-			 const std::string& value);
+             const std::string& value);
 
   /**
    * read_meta - read a simple configuration key out-of-band
@@ -383,8 +478,9 @@ public:
    * @param value pointer to value std::string
    * @returns 0 for success, or an error code
    */
+   //读取超级块信息
   virtual int read_meta(const std::string& key,
-			std::string *value);
+            std::string *value);
 
   /**
    * get ideal max value for collection_list()
@@ -400,6 +496,16 @@ public:
    * Provide a trivial handle as a default to avoid converting legacy
    * implementations.
    */
+   //获取 collection。BlueStore 会查询 kvdb 中前缀为 C 的所有 kv 键值对，找到 key 值匹配的集合并返回，若未在 kvdb 命中，也会返回一个 colleciton 指针。
+    /**
+     * get a collection handle
+     *
+     * Provide a trivial handle as a default to avoid converting legacy
+     * implementations.
+     *
+     * @param cid 集合id、类型的包装
+     * @return CollectionHandle 集合句柄
+     */
   virtual CollectionHandle open_collection(const coll_t &cid) = 0;
 
   /**
@@ -409,6 +515,7 @@ public:
    * create_collection call in order to become valid.  It will become the
    * reference to the created collection.
    */
+  // 创建一个集合，实际就是把集合写入 kvdb，此操作需要通过 queue_transaction() 才能生效。
   virtual CollectionHandle create_new_collection(const coll_t &cid) = 0;
 
   /**
@@ -417,6 +524,7 @@ public:
    * After that, oncommits of Transaction will queue into commit_queue.
    * And osd ShardThread will call oncommits.
    */
+   //为 collection 设置一个 on_commit 回调函数队列，每个 collection 只有一个该队列。在 /src/osd/OSD.cc 中被调用，只在新建集合、载入集合、分裂集合时才会创建。
   virtual void set_collection_commit_queue(const coll_t &cid, ContextQueue *commit_queue) = 0;
 
   /**
@@ -430,6 +538,7 @@ public:
    * @param oid oid of object
    * @returns true if object exists, false otherwise
    */
+   // 判断集合中是否存在该对象。
   virtual bool exists(CollectionHandle& c, const ghobject_t& oid) = 0;
   /**
    * set_collection_opts -- std::set pool options for a collectioninformation for an object
@@ -438,6 +547,7 @@ public:
    * @param opts new collection options
    * @returns 0 on success, negative error code on failure.
    */
+   //设置存储池 pool 选项。在 src/osd/PG.cc 中被调用。
   virtual int set_collection_opts(
     CollectionHandle& c,
     const pool_opts_t& opts) = 0;
@@ -451,6 +561,7 @@ public:
    * @param allow_eio if false, assert on -EIO operation failure
    * @returns 0 on success, negative error code on failure.
    */
+   //获取对象文件属性信息。stat 信息并非全部填写，而是只获取部分。
   virtual int stat(
     CollectionHandle &c,
     const ghobject_t& oid,
@@ -470,6 +581,7 @@ public:
    * @param op_flags is CEPH_OSD_OP_FLAG_*
    * @returns number of bytes read on success, or negative error code on failure.
    */
+   // 读取对象数据，可以设置 offset 和 length，默认为读取整个对象。
    virtual int read(
      CollectionHandle &c,
      const ghobject_t& oid,
@@ -494,10 +606,18 @@ public:
    * @param bl output ceph::buffer::list for extent std::map information.
    * @returns 0 on success, negative error code on failure.
    */
+   /*
+   分段加载 extent_map，为了支持 readv() 函数。
+   
+   此函数作用是把 object 对应范围的 extent_map 读取到内存中。返回一个 set，保存了读取的范围。
+   extent_map 在 BlueStore 中是分片保存在磁盘上，因此需要读取对应分片。此函数可以把一定范围的对象转为 分片范围，读取到内存中。
+   
+   注意：返回的只是读取范围 [start, end]，并不是 extent_map 内容。
+   */
    virtual int fiemap(CollectionHandle& c, const ghobject_t& oid,
-		      uint64_t offset, size_t len, ceph::buffer::list& bl) = 0;
+              uint64_t offset, size_t len, ceph::buffer::list& bl) = 0;
    virtual int fiemap(CollectionHandle& c, const ghobject_t& oid,
-		      uint64_t offset, size_t len, std::map<uint64_t, uint64_t>& destmap) = 0;
+              uint64_t offset, size_t len, std::map<uint64_t, uint64_t>& destmap) = 0;
 
   /**
    * readv -- read specfic intervals from an object;
@@ -517,6 +637,7 @@ public:
    * @param op_flags is CEPH_OSD_OP_FLAG_*
    * @returns number of bytes read on success, or negative error code on failure.
    */
+   //同 read() 类似。区别在于 read() 只能读取一段数据，readv() 支持读取多段数据。
    virtual int readv(
      CollectionHandle &c,
      const ghobject_t& oid,
@@ -561,6 +682,8 @@ public:
    * @param f Formatter class instance to print to
    * @returns 0 on success, negative error code on failure.
    */
+  //目前仅在 ceph-objectstore-tool 中被调用到。
+  // ceph-objectstore-tool --data-path /var/lib/ceph/osd/ceph-0/ rbd_header.20e5ff0224ec0 dump
   virtual int dump_onode(
     CollectionHandle &c,
     const ghobject_t& oid,
@@ -578,8 +701,13 @@ public:
    * @param value place to put output result.
    * @returns 0 on success, negative error code on failure.
    */
+  /*
+  查询对象的 xattr 属性。通过 kvdb 获取 onode 信息，xattr 保存在每个对象的 onode 中。
+  
+  支持多种返回类型：ptr、buffer、map<string, ptr>、map<string, list>。
+  */
   virtual int getattr(CollectionHandle &c, const ghobject_t& oid,
-		      const char *name, ceph::buffer::ptr& value) = 0;
+              const char *name, ceph::buffer::ptr& value) = 0;
 
   /**
    * getattr -- get an xattr of an object
@@ -608,7 +736,7 @@ public:
    * @returns 0 on success, negative error code on failure.
    */
   virtual int getattrs(CollectionHandle &c, const ghobject_t& oid,
-		       std::map<std::string,ceph::buffer::ptr, std::less<>>& aset) = 0;
+               std::map<std::string,ceph::buffer::ptr, std::less<>>& aset) = 0;
 
   /**
    * getattrs -- get all of the xattrs of an object
@@ -619,7 +747,7 @@ public:
    * @returns 0 on success, negative error code on failure.
    */
   int getattrs(CollectionHandle &c, const ghobject_t& oid,
-	       std::map<std::string,ceph::buffer::list,std::less<>>& aset) {
+           std::map<std::string,ceph::buffer::list,std::less<>>& aset) {
     std::map<std::string,ceph::buffer::ptr,std::less<>> bmap;
     int r = getattrs(c, oid, bmap);
     for (auto i = bmap.begin(); i != bmap.end(); ++i) {
@@ -631,7 +759,7 @@ public:
 
   // collections
 
-  /**
+  /** 查询此 OSD 的所有集合。
    * list_collections -- get all of the collections known to this ObjectStore
    *
    * @param ls std::list of the collections in sorted order.
@@ -639,7 +767,7 @@ public:
    */
   virtual int list_collections(std::vector<coll_t>& ls) = 0;
 
-  /**
+  /** 检查 OSD 中是否有该集合。
    * does a collection exist?
    *
    * @param c collection
@@ -647,7 +775,7 @@ public:
    */
   virtual bool collection_exists(const coll_t& c) = 0;
 
-  /**
+  /** 检查集合是否为空（没有对象）？
    * is a collection empty?
    *
    * @param c collection
@@ -663,10 +791,17 @@ public:
    * std::set.  A legacy backend may return -EAGAIN if the value is unavailable
    * (because we upgraded from an older version, e.g., FileStore).
    */
+
+  /*
+  对象在进行 crush 运算映射到某个 pg 时，因为 pg 的数量总是有限的，因此不需要
+  对整个对象 id 进行 hash 映射，只需要取最后的 n 位（2^n = pg 数量），即 n 位表
+  示对象通过 stable_mod 映射至 pg 时，其32位全精度哈希值（从最低位开始）有多少
+  位是有效的。这一概念在《Ceph之Rados设计原理与实现》一书中P11 ~ P13页有详细介绍。
+  */
   virtual int collection_bits(CollectionHandle& c) = 0;
 
 
-  /**
+  /** 列出集合中指定范围的对象。
    * std::list contents of a collection that fall in the range [start, end) and no more than a specified many result
    *
    * @param c collection
@@ -679,9 +814,9 @@ public:
    * @return zero on success, or negative error
    */
   virtual int collection_list(CollectionHandle &c,
-			      const ghobject_t& start, const ghobject_t& end,
-			      int max,
-			      std::vector<ghobject_t> *ls, ghobject_t *next) = 0;
+                  const ghobject_t& start, const ghobject_t& end,
+                  int max,
+                  std::vector<ghobject_t> *ls, ghobject_t *next) = 0;
 
   virtual int collection_list_legacy(CollectionHandle &c,
                                      const ghobject_t& start,
@@ -693,6 +828,11 @@ public:
 
   /// OMAP
   /// Get omap contents
+  /*
+  查询指定对象的 omap 属性。
+  
+  omap 在kvdb 的保存形式为：prefix ： key ：value。每个对象的 omap 单独保存在 kvdb 中，前缀为 M。
+  */
   virtual int omap_get(
     CollectionHandle &c,     ///< [in] Collection containing oid
     const ghobject_t &oid,   ///< [in] Object containing omap

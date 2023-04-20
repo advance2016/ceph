@@ -65,6 +65,7 @@ std::shared_ptr<NetworkStack> NetworkStack::create(CephContext *c,
 {
   std::shared_ptr<NetworkStack> stack = nullptr;
 
+  //创建PosixNetworkStack
   if (t == "posix")
     stack.reset(new PosixNetworkStack(c));
 #ifdef HAVE_RDMA
@@ -82,7 +83,8 @@ std::shared_ptr<NetworkStack> NetworkStack::create(CephContext *c,
     ceph_abort();
     return nullptr;
   }
-  
+
+  //设置异步线程数，默认是3个([1, 24])
   unsigned num_workers = c->_conf->ms_async_op_threads;
   ceph_assert(num_workers > 0);
   if (num_workers >= EventCenter::MAX_EVENTCENTER) {
@@ -116,6 +118,8 @@ void NetworkStack::start()
     return ;
   }
 
+  //逐个通过spawn_worker函数启动Worker线程（工作线程的主要工作就是add_thread
+  //返回的std::function）
   for (Worker* worker : workers) {
     if (worker->is_init())
       continue;

@@ -78,6 +78,7 @@ private:
   // crimson is single threaded at the moment
   mutable uint64_t nref{1};
 #else
+  //mutable的中文意思是“可变的，易变的”，跟constant（既C++中的const）是反义词。
   mutable std::atomic<uint64_t> nref{1};
 #endif
   CephContext *cct{nullptr};

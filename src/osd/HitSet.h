@@ -31,7 +31,7 @@
  * to users and wrap the encoded object with a type so that it can be
  * safely decoded later.
  */
-
+//用来跟踪和统计对象的访问行为。目前仅记录了对象是否在缓存中。
 class HitSet {
 public:
   typedef enum {
@@ -177,9 +177,11 @@ std::ostream& operator<<(std::ostream& out, const HitSet::Params& p);
 
 /**
  * explicitly enumerate hash hits in the set
+ * 基于对象32位哈希值的set来记录的对象命中
  */
 class ExplicitHashHitSet : public HitSet::Impl {
   uint64_t count;
+
   ceph::unordered_set<uint32_t> hits;
 public:
   class Params : public HitSet::Params::Impl {

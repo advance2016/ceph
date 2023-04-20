@@ -107,6 +107,7 @@ int main(int argc, const char **argv, const char *envp[]) {
     { "chdir", "/" }  // FUSE will chdir("/"); be ready.
   };
 
+  // 生成ceph context
   auto cct = global_init(&defaults, args, CEPH_ENTITY_TYPE_CLIENT,
 			 CODE_ENVIRONMENT_DAEMON,
 			 CINIT_FLAG_UNPRIVILEGED_DAEMON_DEFAULTS);
@@ -126,6 +127,8 @@ int main(int argc, const char **argv, const char *envp[]) {
       struct fuse_args fargs = FUSE_ARGS_INIT(2, (char**)tmpargv);
 #if FUSE_VERSION >= FUSE_MAKE_VERSION(3, 0)
       struct fuse_cmdline_opts opts = {};
+
+      // 解析命令行参数
       if (fuse_parse_cmdline(&fargs, &opts) == -1) {
 #else
       if (fuse_parse_cmdline(&fargs, nullptr, nullptr, nullptr) == -1) {
@@ -159,6 +162,8 @@ int main(int argc, const char **argv, const char *envp[]) {
     global_init_prefork(g_ceph_context);
     int r;
     string err;
+
+    // daemonize，成为守护进程
     r = forker.prefork(err);
     if (r < 0 || forker.is_parent()) {
       // Start log if current process is about to exit. Otherwise, we hit an assert
@@ -259,6 +264,8 @@ int main(int argc, const char **argv, const char *envp[]) {
     void *tester_rp = nullptr;
 
     icp.start(cct->_conf.get_val<std::uint64_t>("client_asio_thread_count"));
+
+    // 初始化monitor client及monmap
     MonClient *mc = new MonClient(g_ceph_context, icp);
     int r = mc->build_initial_monmap();
     if (r == -EINVAL) {
@@ -269,16 +276,25 @@ int main(int argc, const char **argv, const char *envp[]) {
       goto out_mc_start_failed;
 
     // start up network
+    // 创建client messenger
     messenger = Messenger::create_client_messenger(g_ceph_context, "client");
     messenger->set_default_policy(Messenger::Policy::lossy_client(0));
     messenger->set_policy(entity_name_t::TYPE_MDS,
 			  Messenger::Policy::lossless_client(0));
 
+    /*
+    创建client，用来收发用户IO请求
+    ceph定义的文件操作函数都封装在类Client中
+    Client实例指针作为CephFuse::Handle类的成员变量。
+    而CephFuse::Handle实例指针又作为CephFuse类的成员变量，这样CephFuse实例可以通过
+    client来调用文件系统操作函数来进行文件操作。
+    */
     client = new StandaloneClient(messenger, mc, icp);
     if (filer_flags) {
       client->set_filer_flags(filer_flags);
     }
 
+    // 创建CephFuse对象并初始化
     cfuse = new CephFuse(client, forker.get_signal_fd());
 
     r = cfuse->init(newargc, newargv);
@@ -288,6 +304,7 @@ int main(int argc, const char **argv, const char *envp[]) {
     }
 
     cerr << "ceph-fuse[" << getpid() << "]: starting ceph client" << std::endl;
+    // 启动messenger线程，开始接收消息
     r = messenger->start();
     if (r < 0) {
       cerr << "ceph-fuse[" << getpid() << "]: ceph messenger failed with " << cpp_strerror(-r) << std::endl;
@@ -295,6 +312,8 @@ int main(int argc, const char **argv, const char *envp[]) {
     }
 
     // start client
+    // 初始化client的定时器，启动objectcacher（对象缓存管理），初始化objecter并
+    // 启动，objecter是跟osd打交道的client，添加dispatcher到messenger
     r = client->init();
     if (r < 0) {
       cerr << "ceph-fuse[" << getpid() << "]: ceph client failed with " << cpp_strerror(-r) << std::endl;
@@ -311,6 +330,8 @@ int main(int argc, const char **argv, const char *envp[]) {
       auto mountpoint = client_mountpoint.c_str();
       auto fuse_require_active_mds = g_conf().get_val<bool>(
         "fuse_require_active_mds");
+
+      // ，与mds交互检查目录权限？
       r = client->mount(mountpoint, perms, fuse_require_active_mds);
       if (r < 0) {
         if (r == CEPH_FUSE_NO_MDS_UP) {
@@ -329,9 +350,19 @@ int main(int argc, const char **argv, const char *envp[]) {
     }
 
     cerr << "ceph-fuse[" << getpid() << "]: starting fuse" << std::endl;
+    /*
+    初始化并启动remount的test线程（执行RemountTest::entry函数检查是否支持
+    invalidate dentry，如果内核版本大于3.18并且配置项里设置了client_try_dentry_invalidate=true，
+    则检查是否注册了dentry invalidate callback；反之则需要通过remount操作来强制invalidate dentry，
+    执行的命令是"mount -i -o remount $mountpoint"，如果remount失败并且配置项
+    client_die_on_failed_dentry_invalidate=true则执行"fusermount -u -z $mountpoint"
+    命令umount掉，下面的loop()就会失败，以达到退出进程的目的）
+    */
     tester.init(cfuse, client);
     tester.create("tester");
     r = cfuse->loop();
+
+    // loop()结束后，检查tester线程返回值
     tester.join(&tester_rp);
     tester_r = static_cast<int>(reinterpret_cast<uint64_t>(tester_rp));
     cerr << "ceph-fuse[" << getpid() << "]: fuse finished with error " << r

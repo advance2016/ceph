@@ -654,7 +654,11 @@ namespace std {
 std::ostream& operator<<(std::ostream& out, const spg_t &pg);
 
 // ----------------------
-
+//collection有三种不同的类型： 
+/*TYPE_META类型表示这个PG里保存的是元数据(meta)相关的对象；
+TYPE_PG表示该collection保存的是PG相关的数据； 
+TYPE_TEMP保存临时对象。
+*/
 class coll_t {
   enum type_t : uint8_t {
     TYPE_META = 0,
@@ -662,12 +666,12 @@ class coll_t {
     TYPE_PG = 2,
     TYPE_PG_TEMP = 3,
   };
-  type_t type;
-  spg_t pgid;
+  type_t type;   //类型： meta、pg、temp
+  spg_t pgid;    //对应的pgi
   uint64_t removal_seq;  // note: deprecated, not encoded
 
   char _str_buff[spg_t::calc_name_buf_size];
-  char *_str;
+  char *_str;      //缓存的字符串
 
   void calc_str();
 
@@ -1225,9 +1229,9 @@ struct pg_pool_t {
   static const char *APPLICATION_NAME_RGW;
 
   enum {
-    TYPE_REPLICATED = 1,     // replication
-    //TYPE_RAID4 = 2,   // raid4 (never implemented)
-    TYPE_ERASURE = 3,      // erasure-coded
+    TYPE_REPLICATED = 1,     // replication 副本
+    //TYPE_RAID4 = 2,   // raid4 (never implemented)  从来没有实现的raid4
+    TYPE_ERASURE = 3,      // erasure-coded  纠删码
   };
   static constexpr uint32_t pg_CRUSH_ITEM_NONE = 0x7fffffff; /* can't import crush.h here */
   static std::string_view get_type_name(int t) {
@@ -1342,7 +1346,13 @@ struct pg_pool_t {
 
   /// converts the acting/up vector to a set of pg shards
   void convert_to_pg_shards(const std::vector<int> &from, std::set<pg_shard_t>* to) const;
-
+  /*
+  1．write back模式
+  在write back模式下，读写请求都直接发给cache pool，这种模式适合于大量修改数据
+  的应用场景（例如图片视频编辑、事务处理OLTP类应用）。在write back模式下，读操
+  作时对象在缓存层不存在（cache miss）时，有read forward和read proxy两种特殊模
+  式进行处理。写操作在缓存不命中的情况下有writeproxy的特殊模式进行处理。
+  */
   typedef enum {
     CACHEMODE_NONE = 0,                  ///< no caching
     CACHEMODE_WRITEBACK = 1,             ///< write to cache, flush later
@@ -1428,21 +1438,28 @@ struct pg_pool_t {
   }
 
   utime_t create_time;
-  uint64_t flags = 0;           ///< FLAG_*
-  __u8 type = 0;                ///< TYPE_*
-  __u8 size = 0, min_size = 0;  ///< number of osds in each pg
+  uint64_t flags = 0;           ///< FLAG_*  pool的相关的标志
+
+  //定义了Pool的类型，目前有replication和ErasureCode两种类型。
+  __u8 type = 0;                ///< TYPE_*  类型
+
+  // pool的size和min_size，也就是副本数和至少保证的副本数
+  __u8 size = 0, min_size = 0;  ///< number of osds in each pg 
   __u8 crush_rule = 0;          ///< crush placement rule
-  __u8 object_hash = 0;         ///< hash mapping object name to ps
+  __u8 object_hash = 0;         ///< hash mapping object name to ps  对象映射的hash函数
   pg_autoscale_mode_t pg_autoscale_mode = pg_autoscale_mode_t::UNKNOWN;
 
 private:
-  __u32 pg_num = 0, pgp_num = 0;  ///< number of pgs
+  //PG的数量，pgp的值（用于rule set的设置）
+  __u32 pg_num = 0, pgp_num = 0;  ///< number of pgs  
   __u32 pg_num_pending = 0;       ///< pg_num we are about to merge down to
   __u32 pg_num_target = 0;        ///< pg_num we should converge toward
   __u32 pgp_num_target = 0;       ///< pgp_num we should converge toward
 
 public:
   std::map<std::string, std::string> properties;  ///< OBSOLETE
+
+  //EC的配置信息
   std::string erasure_code_profile; ///< name of the erasure code profile in OSDMap
   epoch_t last_change = 0;      ///< most recent epoch changed, exclusing snapshot changes
   // If non-zero, require OSDs in at least this many different instances...
@@ -1488,8 +1505,23 @@ public:
 
   unsigned pg_num_mask = 0, pgp_num_mask = 0;
 
+  /*
+  这两个字段用来设置pool的属性：
+  ❑ 如果当前pool是一个cache pool，那么tier_of记录了该cache pool的base pool层。
+  ❑ 如果当前pool是base pool，那么tiers就记录该base pool的cache pool层，
+    一个base pool可以设置多个cache pool层。
+    
+  使用如下命令来设置Cache Tier的两个存储层之间的关系：
+    ceph osd tier add {data_pool} {cache_pool}
+  */
   std::set<uint64_t> tiers;      ///< pools that are tiers of us
   int64_t tier_of = -1;         ///< pool for which we are a tier
+
+  /*
+  read_tier和write_tier分别设置base pool的读缓存层和写缓存层。根据Ceph不同的
+  Cache Tier模式来设置。如果是write_back模式，那么该cache pool既是read层，又
+  是write层。如果只是read only模式，那么设置的cache pool只是read层，并不是write层。
+  */
   // Note that write wins for read+write ops
   int64_t read_tier = -1;       ///< pool/tier for objecter to direct reads to
   int64_t write_tier = -1;      ///< pool/tier for objecter to direct writes to
@@ -1512,11 +1544,21 @@ public:
       flags |= FLAG_INCOMPLETE_CLONES;
     cache_mode = CACHEMODE_NONE;
 
+    //字段target_max_bytes设置了cache pool的最大的字节数。
     target_max_bytes = 0;
+
+    //target_max_objects设置了cache pool的最大对象数量。
     target_max_objects = 0;
+
+    //目标脏数据率：当脏数据率达到这个值时，后台agent开始flush数据
     cache_target_dirty_ratio_micro = 0;
+
+    //高目标脏数据率：当脏数据率达到这个值时，后台agent开始高速flush数据
     cache_target_dirty_high_ratio_micro = 0;
+
+    //数据满的比率：当数据达到这个比率就认为cache处于满的状态
     cache_target_full_ratio_micro = 0;
+    
     hit_set_params = HitSet::Params();
     hit_set_period = 0;
     hit_set_count = 0;
@@ -1550,12 +1592,22 @@ public:
   uint32_t cache_target_dirty_high_ratio_micro = 0; ///< cache: fraction of  target to flush with high speed
   uint32_t cache_target_full_ratio_micro = 0;  ///< cache: fraction of target to fill before we evict in earnest
 
+  //设置了一个对象在cache中被返回base tier的最小时间。
   uint32_t cache_min_flush_age = 0;  ///< minimum age (seconds) before we can flush
+
+  //设置了一个对象在cache中被evict操作的最小操作时间。evict(驱逐)
   uint32_t cache_min_evict_age = 0;  ///< minimum age (seconds) before we can evict
 
+  //hitset相关的参数
   HitSet::Params hit_set_params; ///< The HitSet params to use on this pool
+
+  //设置每过该段时间，系统要重新产生一个新的hit_set对象来记录对象的缓存统计信息。
   uint32_t hit_set_period = 0;   ///< periodicity of HitSet segments (seconds)
+
+  //用来记录系统保存最近的多少个hit_set记录。
   uint32_t hit_set_count = 0;    ///< number of periods to retain
+
+  //表示hitset archive对象的命名规则。
   bool use_gmt_hitset = true;	 ///< use gmt to name the hitset archive object
   uint32_t min_read_recency_for_promote = 0;   ///< minimum number of HitSet to check before promote on read
   uint32_t min_write_recency_for_promote = 0;  ///< minimum number of HitSet to check before promote on write
@@ -2993,23 +3045,39 @@ inline std::ostream& operator<<(std::ostream& out, const pg_history_t& h) {
  *    otherwise, we have no idea what the pg is supposed to contain.
  */
 struct pg_info_t {
-  spg_t pgid;
+  spg_t pgid;   //对应的PG ID
+  
+  //PG内最近一次更新的对象的版本，还没有在所有OSD上完成更新。在last_update和last_complete之间的操作表示
+  //该操作已在部分OSD上完成，但是还没有全部完成。
   eversion_t last_update;      ///< last object version applied to store.
+
+  //该指针之前的版本都已经在所有的OSD上完成更新（只表示内存更新完成）
   eversion_t last_complete;    ///< last version pg was complete through.
+
+  //本PG在启动时候的epoch值
   epoch_t last_epoch_started;  ///< last epoch at which this pg started on this osd
   epoch_t last_interval_started; ///< first epoch of last_epoch_started interval
-  
+
+  //最后更新的user object的版本号
   version_t last_user_version; ///< last user object version applied to store
 
+  //用于记录日志的尾部版本
   eversion_t log_tail;         ///< oldest log entry.
 
+  //上一次backfill操作的对象指针。如果该OSD的Backfill操作没有完成，那么[last_bakfill, last_complete)之间的对象可能
+  //处于missing状态
   hobject_t last_backfill;     ///< objects >= this and < last_complete may be missing
 
+  //PG要删除的snap集合
   interval_set<snapid_t> purged_snaps;
 
+  //PG的统计信息
   pg_stat_t stats;
 
+  //用于保存最近一次PG peering获取到的epoch等相关信息
   pg_history_t history;
+
+  //这是Cache Tier用的hit_set
   pg_hit_set_history_t hit_set;
 
   friend bool operator==(const pg_info_t& l, const pg_info_t& r) {
@@ -4121,11 +4189,11 @@ std::ostream& operator<<(std::ostream& out, const ObjectCleanRegions& ocr);
 
 
 struct OSDOp {
-  ceph_osd_op op;
-  sobject_t soid;
+  ceph_osd_op op;  //各种操作码和操作参数
+  sobject_t soid;  //操作对象
 
-  ceph::buffer::list indata, outdata;
-  errorcode32_t rval = 0;
+  ceph::buffer::list indata, outdata;   //输入和输出bufferlist
+  errorcode32_t rval = 0;  //操作结果
 
   OSDOp() {
     // FIPS zeroization audit 20191115: this memset clean for security
@@ -5466,7 +5534,7 @@ inline std::ostream& operator<<(std::ostream& out, const ObjectExtent &ex)
 
 
 // ---------------------------------------
-
+//主要是版本号等信息
 class OSDSuperblock {
 public:
   uuid_d cluster_fsid, osd_fsid;
@@ -5828,15 +5896,16 @@ struct object_manifest_t {
 WRITE_CLASS_ENCODER(object_manifest_t)
 std::ostream& operator<<(std::ostream& out, const object_manifest_t& oi);
 
+//保存了一个对象的元数据信息和访问信息
 struct object_info_t {
-  hobject_t soid;
-  eversion_t version, prior_version;
-  version_t user_version;
-  osd_reqid_t last_reqid;
+  hobject_t soid;  //对应的对象
+  eversion_t version, prior_version;  //对象的当前版本，前一个版本
+  version_t user_version;  //用户操作的版本
+  osd_reqid_t last_reqid;  //最后请求的请求id
 
-  uint64_t size;
-  utime_t mtime;
-  utime_t local_mtime; // local mtime
+  uint64_t size;  //对象的大小
+  utime_t mtime;  //修改时间
+  utime_t local_mtime; // local mtime  修改的本地时间
 
   // note: these are currently encoded into a total 16 bits; see
   // encode()/decode() for the weirdness.
@@ -5853,7 +5922,7 @@ struct object_info_t {
     FLAG_REDIRECT_HAS_REFERENCE = 1<<9, // has reference
   } flag_t;
 
-  flag_t flags;
+  flag_t flags;  //对象的一些标记
 
   static std::string get_flag_string(flag_t flags) {
     std::string s;
@@ -5893,11 +5962,13 @@ struct object_info_t {
     return get_flag_string(flags);
   }
 
-  uint64_t truncate_seq, truncate_size;
+  uint64_t truncate_seq, truncate_size;  //truncate操作的序号和size
 
+  //watchers记录了客户端监控信息，一旦对象的状态发送变化，需要通知客户端
   std::map<std::pair<uint64_t, entity_name_t>, watch_info_t> watchers;
 
   // opportunistic checksums; may or may not be present
+  // 数据或者omap信息的 crc32校验信息，可能有，也可能没有
   __u32 data_digest;  ///< data crc32c
   __u32 omap_digest;  ///< omap crc32c
   

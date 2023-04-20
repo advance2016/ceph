@@ -42,12 +42,33 @@ class AsyncMessenger;
 /**
  * If the Messenger binds to a specific address, the Processor runs
  * and listens for incoming connections.
+  Processor的主要工作是”监视”，类似于Socket编程中的listen，Async机制会启动一组
+  Processor线程，每个线程”监视”一个端口，一旦有链接建立，即构造一个AsynConnection
+  实例并交由该Processor线程对应的Worker线程处理。这里插句题外话，Processor线程和
+  Worker线程是”多对一”的关系，一个Worker线程不但处理Processor发给它的任务，还可
+  能会有一堆AsyncConnection发给它的任务。在Ceph中，进程之间(eg, OSD-OSD)没有C/S
+  之分，但两个进程之间有很多的Connection，对于每个Connection确是有C/S之分的。在
+  没有链接的情况下，主动建立链接的为Client，被动接受链接的为Server，而Processor
+  就是那个使一个进程可以像Server一样被动建立链接的前提。
  */
 class Processor {
   AsyncMessenger *msgr;
+
+  //Processor建立连接的底层是使用Socket的listen-accept机制，这些机制被封装在了NetHandler中
   ceph::NetHandler net;
+
+  //Processor关联的Worker线程，Processor和Connection一样，所有Event最后都提交给关联的Worker处理
   Worker *worker;
+
+  //监听的socket
   std::vector<ServerSocket> listen_sockets;
+
+  /* 
+  accept的处理函数, 实质是C_processor_accept实例，作为listen_socket.fd()的
+  handler被注册到Msg中的file events中，当Client端有连接过来时，该fd()会变得可读，
+  此时就会回调该listen_handler，本质是调用Processor.accept()–>AsyncMessenger.add_accept()–>AsyncConnection.accept()
+  来建立一个可用连接。 
+  */
   EventCallbackRef listen_handler;
 
   class C_processor_accept;
@@ -57,6 +78,8 @@ class Processor {
   ~Processor() { delete listen_handler; };
 
   void stop();
+  
+  //绑定一个地址作为listen_socket。
   int bind(const entity_addrvec_t &bind_addrs,
 	   const std::set<int>& avoid_ports,
 	   entity_addrvec_t* bound_addrs);
@@ -70,7 +93,9 @@ class Processor {
  * AsyncMessenger.
  *
  */
-
+/*
+主要完成AsyncConnection的管理。其内部保存了所有Connection相关的信息。
+*/
 class AsyncMessenger : public SimplePolicyMessenger {
   // First we have the public Messenger interface implementation...
 public:
@@ -179,6 +204,7 @@ protected:
    */
   /**
    * Start up the DispatchQueue thread once we have somebody to dispatch to.
+   * 启动Processor和dispatch_queue线程
    */
   void ready() override;
   /** @} // Messenger Interfaces */
@@ -200,6 +226,7 @@ private:
    *
    * @return a pointer to the newly-created connection. Caller does not own a
    * reference; take one if you need it.
+   * 创建Connection实例的接口
    */
   AsyncConnectionRef create_connect(const entity_addrvec_t& addrs, int type,
 				    bool anon);
@@ -211,9 +238,11 @@ private:
   entity_addrvec_t _filter_addrs(const entity_addrvec_t& addrs);
 
  private:
-  NetworkStack *stack;
-  std::vector<Processor*> processors;
+  NetworkStack *stack;  // 起线程
+  std::vector<Processor*> processors;  // 主要用来监听连接
   friend class Processor;
+
+  //用来分发消息，向上层提交收到的Message的队列
   DispatchQueue dispatch_queue;
 
   // the worker run messenger's cron jobs
@@ -270,6 +299,7 @@ private:
    *
    * NOTE: a Asyncconnection* with state CLOSED may still be in the map but is considered
    * invalid and can be replaced by anyone holding the msgr lock
+   * 现在的Connection
    */
   ceph::unordered_map<entity_addrvec_t, AsyncConnectionRef> conns;
 
@@ -277,6 +307,8 @@ private:
    * list of connection are in the process of accepting
    *
    * These are not yet in the conns map.
+   * 正在accept的Connection, 对于Connection建立过程中的Server端，accept返回但
+   * 还在协商阶段的Connection被放置于此，连接建立成功后将从这里移到conns中
    */
   std::set<AsyncConnectionRef> accepting_conns;
 
@@ -293,6 +325,7 @@ private:
    * we pick up this idea that just queue itself to this set and do lazy
    * deleted for AsyncConnection. "_lookup_conn" must ensure not return a
    * AsyncConnection in this set.
+   * 准备删除的 Connection
    */
   ceph::mutex deleted_lock = ceph::make_mutex("AsyncMessenger::deleted_lock");
   std::set<AsyncConnectionRef> deleted_conns;
@@ -355,8 +388,11 @@ public:
     return _lookup_conn(k); /* make new ref! */
   }
 
+  // 将链接从accepting_conns中删除，并添加到conns中
   int accept_conn(const AsyncConnectionRef& conn);
   bool learned_addr(const entity_addr_t &peer_addr_for_me);
+
+  //被Processor::accept()调用，Server端一旦侦听到Client端的链接，就会在Server端建立一个Connection实例，并将其加入到accepting_conns中以待后续处理，这个建立和加入的过程就是在该函数中完成的。
   void add_accept(Worker *w, ConnectedSocket cli_socket,
 		  const entity_addr_t &listen_addr,
 		  const entity_addr_t &peer_addr);

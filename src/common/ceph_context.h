@@ -202,14 +202,15 @@ public:
     auto i = associated_objs.find(std::make_pair(name, type));
     if (i == associated_objs.cend()) {
       if (drop_on_fork) {
-	associated_objs_drop_on_fork.insert(std::string(name));
+        associated_objs_drop_on_fork.insert(std::string(name));
       }
+      //向 map 容器中插入新的键值对
       i = associated_objs.emplace_hint(
-	i,
-	std::piecewise_construct,
-	std::forward_as_tuple(name, type),
-	std::forward_as_tuple(std::in_place_type<T>,
-			      std::forward<Args>(args)...));
+                                    i,
+                                    std::piecewise_construct,
+                                    std::forward_as_tuple(name, type),
+                                    std::forward_as_tuple(std::in_place_type<T>,
+                                    std::forward<Args>(args)...));
     }
     return ceph::any_cast<T&>(i->second);
   }

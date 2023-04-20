@@ -206,6 +206,10 @@ enum {
   l_msgr_last,
 };
 
+/*
+Worker类是工作线程的抽象接口，同时添加了listen和connect接口用于服务端和客户端的
+网络处理。其内部创建一个EventCenter类，该类保存相关处理的事件。
+*/
 class Worker {
   std::mutex init_lock;
   std::condition_variable init_cond;
@@ -219,6 +223,8 @@ class Worker {
   unsigned id;
 
   std::atomic_uint references;
+
+  //事件处理中心， 处理该center的所有的事件
   EventCenter center;
 
   Worker(const Worker&) = delete;
@@ -256,8 +262,11 @@ class Worker {
     }
   }
 
+  //server 端
   virtual int listen(entity_addr_t &addr, unsigned addr_slot,
                      const SocketOptions &opts, ServerSocket *) = 0;
+
+  // client主动连接
   virtual int connect(const entity_addr_t &addr,
                       const SocketOptions &opts, ConnectedSocket *socket) = 0;
   virtual void destroy() {}
@@ -292,6 +301,11 @@ class Worker {
   }
 };
 
+
+/*
+网络协议栈的接口。PosixNetworkStack实现了linux的 tcp/ip 协议接口。DPDKStack
+实现了DPDK的接口。RDMAStack实现了IB的接口。
+*/
 class NetworkStack {
   ceph::spinlock pool_spin;
   bool started = false;

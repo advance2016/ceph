@@ -129,6 +129,8 @@ AsyncConnection::AsyncConnection(CephContext *cct, AsyncMessenger *m, DispatchQu
 #ifdef UNIT_TESTS_BUILT
   this->interceptor = m->interceptor;
 #endif
+
+  //构造该AsyncConnection的各种异步Event的handler
   read_handler = new C_handle_read(this);
   write_handler = new C_handle_write(this);
   write_callback_handler = new C_handle_write_callback(this);
@@ -203,6 +205,14 @@ ssize_t AsyncConnection::read(unsigned len, char *buffer,
 //
 // return the remaining bytes, 0 means this buffer is finished
 // else return < 0 means error
+/*
+
+或从recv_buf中读取事前缓冲的足够的数据，填充到传入的buffer(通常是用于构造Message
+的一个buffer)中，或通过AsyncConnection::read_until()–>AsynConnection::read_bulk()–>ConnectedSocket::read()
+调用底层NetworkStack的接口直接读取数据。是AsyncConnection::read_handler.process()的
+核心基础函数。
+
+*/
 ssize_t AsyncConnection::read_until(unsigned len, char *p)
 {
   ldout(async_msgr->cct, 25) << __func__ << " len is " << len << " state_offset is "
@@ -276,7 +286,10 @@ ssize_t AsyncConnection::read_until(unsigned len, char *p)
 }
 
 /* return -1 means `fd` occurs error or closed, it should be closed
- * return 0 means EAGAIN or EINTR */
+ * return 0 means EAGAIN or EINTR
+ 调用ConnectedSocket->read()填充传入的buffer，通常被read_until()调用，用于填充
+ 构造Message的buffer或AsyncConnection::recv_buf
+ */
 ssize_t AsyncConnection::read_bulk(char *buf, unsigned len)
 {
   ssize_t nread;
@@ -362,6 +375,7 @@ void AsyncConnection::inject_delay() {
   }
 }
 
+//处理读操作，---->处理接收到的信息封装成上层需要的message
 void AsyncConnection::process() {
   std::lock_guard<std::mutex> l(lock);
   last_active = ceph::coarse_mono_clock::now();
@@ -378,6 +392,8 @@ void AsyncConnection::process() {
       ldout(async_msgr->cct, 20) << __func__ << " socket closed" << dendl;
       return;
     }
+    //连接正在建立中，需要进行连接操作。
+    //该状态中会创建一个定时事件用于超时检测
     case STATE_CONNECTING: {
       ceph_assert(!policy.server);
 
@@ -406,6 +422,8 @@ void AsyncConnection::process() {
       center->create_file_event(cs.fd(), EVENT_READABLE, read_handler);
       state = STATE_CONNECTING_RE;
     }
+    //表示连接正在尝试重新建立中，需要进行连接操作。
+    //该状态中会创建一个定时事件用于超时检测，如果连接建立成功，则进入STATE_CONNECTION_ESTABLISHED状态。
     case STATE_CONNECTING_RE: {
       ssize_t r = cs.is_connected();
       if (r < 0) {
@@ -436,14 +454,16 @@ void AsyncConnection::process() {
       state = STATE_CONNECTION_ESTABLISHED;
       break;
     }
-
+    
+    //表示连接正在等待接收连接，需要注册读事件等待连接请求。
     case STATE_ACCEPTING: {
       center->create_file_event(cs.fd(), EVENT_READABLE, read_handler);
       state = STATE_CONNECTION_ESTABLISHED;
 
       break;
     }
-
+    
+    //连接已经建立，需要进行读写操作。
     case STATE_CONNECTION_ESTABLISHED: {
       if (pendingReadLen) {
         ssize_t r = read(*pendingReadLen, read_buffer, readCallback);
@@ -453,14 +473,14 @@ void AsyncConnection::process() {
           read_buffer = nullptr;
           readCallback(buf_tmp, r);
         }
-	logger->tinc(l_msgr_running_recv_time,
-	    ceph::mono_clock::now() - recv_start_time);
+        logger->tinc(l_msgr_running_recv_time, ceph::mono_clock::now() - recv_start_time);
         return;
       }
       break;
     }
   }
 
+  //处理完连接状态后，处理连接的读事件
   protocol->read_event();
 
   logger->tinc(l_msgr_running_recv_time,

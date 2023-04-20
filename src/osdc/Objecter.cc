@@ -2269,6 +2269,8 @@ void Objecter::op_submit(Op *op, ceph_tid_t *ptid, int *ctx_budget)
   if (!ptid)
     ptid = &tid;
   op->trace.event("op submit");
+
+  //用来处理Throttle相关的流量限制
   _op_submit_with_budget(op, rl, ptid, ctx_budget);
 }
 
@@ -2388,6 +2390,7 @@ void Objecter::_op_submit(Op *op, shunique_lock<ceph::shared_mutex>& sul, ceph_t
   OSDSession *s = NULL;
 
   bool check_for_latest_map = false;
+  //调用函数_calc_target来计算对象的目标OSD。
   int r = _calc_target(&op->target, nullptr);
   switch(r) {
   case RECALC_OP_TARGET_POOL_DNE:
@@ -2401,6 +2404,7 @@ void Objecter::_op_submit(Op *op, shunique_lock<ceph::shared_mutex>& sul, ceph_t
   }
 
   // Try to get a session, including a retry if we need to take write lock
+  // 调用函数_get_session获取目标OSD的链接，如果返回值为-EAGAIN，就升级为写锁，重新获取。
   r = _get_session(op->target.osd, &s, sul);
   if (r == -EAGAIN ||
       (check_for_latest_map && sul.owns_lock_shared()) ||
@@ -2769,6 +2773,19 @@ void Objecter::_prune_snapc(
   }
 }
 
+/*
+完成对象到osd的寻址过程
+其处理过程如下：
+1）首先根据t->base_oloc.pool的pool信息，获取pg_pool_t对象。
+2）检查如果强制重发，force_resend设置为true。
+3）检查cache tier，如果是读操作，并且有读缓存，就设置target_oloc.pool为该
+pool的read_tier值；如果是写操作，并且有写缓存，就设置target_oloc.pool为该pool的write_tier值。
+4）调用函数osdmap->object_locator_to_pg获取目标对象所在的PG。
+5）调用函数osdmap->pg_to_up_acting_osds，通过CRUSH算分，获取该PG对应的OSD列表。
+6）如果是写操作，target的OSD就设置为主OSD；如果是读操作，如果设置了
+CEPH_OSD_FLAG_BALANCE_READS标志，就随机选择一个副本读取。如果设置了
+CEPH_OSD_FLAG_LOCALIZE_READS标志，就尽可能选择本地副本读取。
+*/
 int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
 {
   // rwlock is locked
@@ -2783,6 +2800,7 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
 		<< (is_write ? " is_write" : "")
 		<< dendl;
 
+  //首先根据t->base_oloc.pool的pool信息，获取pg_pool_t对象。
   const pg_pool_t *pi = osdmap->get_pg_pool(t->base_oloc.pool);
   if (!pi) {
     t->osd = -1;
@@ -2796,6 +2814,7 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
   ldout(cct,30) << __func__ << "  base pi " << pi
 		<< " pg_num " << pi->get_pg_num() << dendl;
 
+  //检查如果强制重发，force_resend设置为true
   bool force_resend = false;
   if (osdmap->get_epoch() == pi->last_force_op_resend) {
     if (t->last_force_resend < pi->last_force_op_resend) {
@@ -2807,6 +2826,10 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
   }
 
   // apply tiering
+  /*
+  检查cache tier，如果是读操作，并且有读缓存，就设置target_oloc.pool为该pool的
+  read_tier值；如果是写操作，并且有写缓存，就设置target_oloc.pool为该pool的write_tier值。
+  *//
   t->target_oid = t->base_oid;
   t->target_oloc = t->base_oloc;
   if ((t->flags & CEPH_OSD_FLAG_IGNORE_OVERLAY) == 0) {
@@ -2828,8 +2851,8 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
     ceph_assert(t->base_oloc.pool == (int64_t)t->base_pgid.pool());
     pgid = t->base_pgid;
   } else {
-    int ret = osdmap->object_locator_to_pg(t->target_oid, t->target_oloc,
-					   pgid);
+    //调用函数osdmap->object_locator_to_pg获取目标对象所在的PG
+    int ret = osdmap->object_locator_to_pg(t->target_oid, t->target_oloc, pgid);
     if (ret == -ENOENT) {
       t->osd = -1;
       return RECALC_OP_TARGET_POOL_DNE;
@@ -2852,6 +2875,7 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
   pg_t actual_pgid(actual_ps, pgid.pool());
   if (!lookup_pg_mapping(actual_pgid, osdmap->get_epoch(), &up, &up_primary,
                          &acting, &acting_primary)) {
+    //通过CRUSH算分，获取该PG对应的OSD列表
     osdmap->pg_to_up_acting_osds(actual_pgid, &up, &up_primary,
                                  &acting, &acting_primary);
     pg_mapping_t pg_mapping(osdmap->get_epoch(),
@@ -2951,6 +2975,11 @@ int Objecter::_calc_target(op_target_t *t, Connection *con, bool any_change)
 		   << " acting " << t->acting
 		   << " primary " << acting_primary << dendl;
     t->used_replica = false;
+    /*
+    如果是写操作，target的OSD就设置为主OSD；如果是读操作，如果设置了
+    CEPH_OSD_FLAG_BALANCE_READS标志，就随机选择一个副本读取。如果设置了
+    CEPH_OSD_FLAG_LOCALIZE_READS标志，就尽可能选择本地副本读取。
+    */
     if ((t->flags & (CEPH_OSD_FLAG_BALANCE_READS |
                      CEPH_OSD_FLAG_LOCALIZE_READS)) &&
         !is_write && pi->is_replicated() && t->acting.size() > 1) {

@@ -18,6 +18,7 @@
 #include "include/buffer.h"
 #include "include/types.h"
 
+//aio_t 一次 io 操作，pwrite，pread，不写到磁盘
 struct aio_t {
 #if defined(HAVE_LIBAIO)
   struct iocb iocb{};  // must be first element; see shenanigans in aio_queue_t
@@ -41,6 +42,7 @@ struct aio_t {
   aio_t(void *p, int f) : priv(p), fd(f), offset(0), length(0), rval(-1000) {
   }
 
+  //预备写，后续通过 submit_batch() 完成实际写入磁盘操作
   void pwritev(uint64_t _offset, uint64_t len) {
     offset = _offset;
     length = len;
@@ -60,6 +62,7 @@ struct aio_t {
 #endif
   }
 
+  //预备读，后续通过 submit_batch() 完成实际写入磁盘操作
   void preadv(uint64_t _offset, uint64_t len) {
     offset = _offset;
     length = len;
@@ -93,6 +96,7 @@ typedef boost::intrusive::list<
     boost::intrusive::list_member_hook<>,
     &aio_t::queue_item> > aio_list_t;
 
+//io_queue_t io提交队列，基本不使用，只用作基类
 struct io_queue_t {
   typedef std::list<aio_t>::iterator aio_iter;
 
@@ -105,6 +109,17 @@ struct io_queue_t {
   virtual int get_next_completed(int timeout_ms, aio_t **paio, int max) = 0;
 };
 
+/*
+ceph 中 libaio 使用流程：
+
+init()：io_setup(int maxevents, io_context_t *ctxp);
+构造 aio_t
+调用 aiot_t->pwritev 或者 aio_t->preadv
+把 aio_t 加入队列：std::list<aio_t>
+int submit_batch(aio_iter begin, aio_iter end, uint16_t aios_size, void *priv, int *retries)
+shutdown: io_destroy(io_context_t ctx)
+*/
+//aio_queue_t 继承自 io_queue_t，提交 io 操作，真正在此写入磁盘
 struct aio_queue_t final : public io_queue_t {
   int max_iodepth;
 #if defined(HAVE_LIBAIO)
@@ -153,7 +168,10 @@ struct aio_queue_t final : public io_queue_t {
     }
   }
 
+  //按批次提交 io 任务
   int submit_batch(aio_iter begin, aio_iter end, uint16_t aios_size,
 		   void *priv, int *retries) final;
+
+  //获取已经完成 IO 的 aio_t，用于 aio_thread() 回调函数
   int get_next_completed(int timeout_ms, aio_t **paio, int max) final;
 };

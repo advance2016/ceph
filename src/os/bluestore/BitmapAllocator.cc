@@ -62,7 +62,7 @@ void BitmapAllocator::release(
   ldout(cct, 10) << __func__ << " done" << dendl;
 }
 
-
+// 增加空闲空间
 void BitmapAllocator::init_add_free(uint64_t offset, uint64_t length)
 {
   ldout(cct, 10) << __func__ << " 0x" << std::hex << offset << "~" << length
@@ -76,6 +76,8 @@ void BitmapAllocator::init_add_free(uint64_t offset, uint64_t length)
   _mark_free(offs, l);
   ldout(cct, 10) << __func__ << " done" << dendl;
 }
+
+// 删除空闲空间
 void BitmapAllocator::init_rm_free(uint64_t offset, uint64_t length)
 {
   ldout(cct, 10) << __func__ << " 0x" << std::hex << offset << "~" << length

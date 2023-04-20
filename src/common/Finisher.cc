@@ -47,6 +47,7 @@ void *Finisher::finisher_thread_entry()
   uint64_t count = 0;
   while (!finisher_stop) {
     /// Every time we are woken up, we process the queue until it is empty.
+    //不断的从finisher_queue中获取要执行的context，每当向finisher_queue插入对象时，就会唤醒该线程。
     while (!finisher_queue.empty()) {
       // To reduce lock contention, we swap out the queue to process.
       // This way other threads can submit new contexts to complete
@@ -57,20 +58,20 @@ void *Finisher::finisher_thread_entry()
       ldout(cct, 10) << "finisher_thread doing " << in_progress_queue << dendl;
 
       if (logger) {
-	start = ceph_clock_now();
-	count = in_progress_queue.size();
+        start = ceph_clock_now();
+        count = in_progress_queue.size();
       }
 
       // Now actually process the contexts.
       for (auto p : in_progress_queue) {
-	p.first->complete(p.second);
+        p.first->complete(p.second);
       }
       ldout(cct, 10) << "finisher_thread done with " << in_progress_queue
                      << dendl;
       in_progress_queue.clear();
       if (logger) {
-	logger->dec(l_finisher_queue_len, count);
-	logger->tinc(l_finisher_complete_lat, ceph_clock_now() - start);
+        logger->dec(l_finisher_queue_len, count);
+        logger->tinc(l_finisher_complete_lat, ceph_clock_now() - start);
       }
 
       ul.lock();
@@ -87,6 +88,7 @@ void *Finisher::finisher_thread_entry()
   }
   // If we are exiting, we signal the thread waiting in stop(),
   // otherwise it would never unblock
+  // 唤醒等待queue执行完的函数
   finisher_empty_cond.notify_all();
 
   ldout(cct, 10) << "finisher_thread stop" << dendl;

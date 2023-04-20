@@ -35,6 +35,12 @@ CephContext *common_preinit(const CephInitParameters &iparams,
   g_code_env = code_env;
 
   // Create a configuration object
+  /*
+  CephContext初始化时最重要的就是实例化md_config_t，md_config_t保存了osd的所有
+  默认配置信息，主要是使用OPTION_OPT_INT，OPTION_OPT_LONGLONG等一系列的宏加上
+  common/config_opts.h灵活实现配置字段的定义。同时CephContext实例化时还初始化
+  了adminsocket，log等模块。
+  */
   CephContext *cct = new CephContext(iparams.module_type, code_env, flags);
 
   auto& conf = cct->_conf;
@@ -94,13 +100,18 @@ void common_init_finish(CephContext *cct)
     return;
   }
   cct->_finished = true;
+
+  // 初始化压缩库
   cct->init_crypto();
   ZTracer::ztrace_init();
 
+  //开启日志线程
   if (!cct->_log->is_started()) {
     cct->_log->start();
   }
 
+  //如果不是CINIT_FLAG_NO_DAEMON_ACTIONS 启动service线程。
+  //开启 service、admin_socket 线程
   int flags = cct->get_init_flags();
   if (!(flags & CINIT_FLAG_NO_DAEMON_ACTIONS))
     cct->start_service_thread();

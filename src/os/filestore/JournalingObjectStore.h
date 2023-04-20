@@ -22,8 +22,8 @@
 
 class JournalingObjectStore : public ObjectStore {
 protected:
-  Journal *journal;
-  Finisher finisher;
+  Journal *journal; //指向了日志操作类  
+  Finisher finisher;    //日志操作完成后的处理线程，在后面会提到
 
 
   class SubmitManager {

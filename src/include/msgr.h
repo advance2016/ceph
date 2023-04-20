@@ -86,12 +86,12 @@ struct ceph_entity_name {
 	__le64 num;
 } __attribute__ ((packed));
 
-#define CEPH_ENTITY_TYPE_MON    0x01
-#define CEPH_ENTITY_TYPE_MDS    0x02
-#define CEPH_ENTITY_TYPE_OSD    0x04
-#define CEPH_ENTITY_TYPE_CLIENT 0x08
+#define CEPH_ENTITY_TYPE_MON    0x01    //Monitor
+#define CEPH_ENTITY_TYPE_MDS    0x02    //MDS
+#define CEPH_ENTITY_TYPE_OSD    0x04    //OSD
+#define CEPH_ENTITY_TYPE_CLIENT 0x08    //CLIENT ,RGW网关
 #define CEPH_ENTITY_TYPE_MGR    0x10
-#define CEPH_ENTITY_TYPE_AUTH   0x20
+#define CEPH_ENTITY_TYPE_AUTH   0x20    //认证授权类型
 
 #define CEPH_ENTITY_TYPE_ANY    0xFF
 
@@ -182,15 +182,15 @@ struct ceph_msg_header_old {
 } __attribute__ ((packed));
 
 struct ceph_msg_header {
-	__le64 seq;       /* message seq# for this session */
-	__le64 tid;       /* transaction id */
-	__le16 type;      /* message type */
+	__le64 seq;       /* message seq# for this session ## 当前session内 消息的唯一 序号*/
+	__le64 tid;       /* transaction id ## 消息的全局唯一的 id*/
+	__le16 type;      /* message type ## 消息类型*/
 	__le16 priority;  /* priority.  higher value == higher priority */
 	__le16 version;   /* version of message encoding */
 
-	__le32 front_len; /* bytes in main payload */
-	__le32 middle_len;/* bytes in middle payload */
-	__le32 data_len;  /* bytes of data payload */
+	__le32 front_len; /* bytes in main payload ## payload 的长度 */
+	__le32 middle_len;/* bytes in middle payload ## middle 的长度 */
+	__le32 data_len;  /* bytes of data payload ## data 的 长度 */
 	__le16 data_off;  /* sender: include full offset;
 			     receiver: mask against ~PAGE_MASK */
 
@@ -236,9 +236,12 @@ struct ceph_msg_footer_old {
 } __attribute__ ((packed));
 
 struct ceph_msg_footer {
+    //三个部分的 crc 效验码
 	__le32 front_crc, middle_crc, data_crc;
 	// sig holds the 64 bits of the digital signature for the message PLR
+	// 消息的64位  signature
 	__le64  sig;
+	//结束标志
 	__u8 flags;
 } __attribute__ ((packed));
 

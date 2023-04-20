@@ -421,6 +421,19 @@ CEPH_RADOS_API void rados_version(int *major, int *minor, int *extra);
  * @{
  */
 
+
+ /*
+ 1）首先调用rados_create函数创建一个RadosClient对象，输出为类型rados_t，
+ 它是一个void类型的指针，通过librados::RadosClient对象的强制转换产生。
+ 第二个参数id为一个标识符，一般传入为NULL。
+ 2）调用函数rados_conf_read来读取配置文件。第二个参数为配置文件的路径，
+ 如果是NULL，就搜索默认的配置文件。
+ 3）调用rados_connect函数，它调用了RadosClient的connect函数，做相关的初始化工作。
+ 4）调用函数rados_ioctx_create，它调用RadosClient的create_ioctx函数，创建pool
+ 相关的IoCtxImpl类，其输出为类型rados_ioctx_t，它也是void类型的指针，由IoCtxImpl对象转换而来。
+ 5）调用函数rados_write函数，向该pool的名为“foo”的对象写入数据。其调用IoCtxImpl类的wrie操作。
+ */
+
 /**
  * Create a handle for communicating with a RADOS cluster.
  *

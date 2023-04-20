@@ -67,6 +67,7 @@
   asm(".symver _" #fn ", " #fn "@@LIBRADOS_" #ver)
 #endif
 
+//## 用于表示将两个参数连在一起 ， 其中宏的##前后空格会被省略
 #define LIBRADOS_C_API_BASE_F(fn) _ ## fn ## _base
 #define LIBRADOS_C_API_DEFAULT_F(fn) _ ## fn
 

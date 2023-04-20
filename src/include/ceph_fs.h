@@ -64,21 +64,32 @@
 
 /*
  * ceph_file_layout - describe data layout for a file/inode
+ * 保存文件或者image的分片信息
  */
 struct ceph_file_layout {
-	/* file -> object mapping */
+	/* file -> object mapping 文件 -> 对象的映射 */
+
+	//stripe的单位，必须是page_size的倍数
 	__le32 fl_stripe_unit;     /* stripe unit, in bytes.  must be multiple
 				      of page size. */
+
+	//stripe跨越的对象数
 	__le32 fl_stripe_count;    /* over this many objects */
+
+	//对象的大小
 	__le32 fl_object_size;     /* until objects are this big, then move to
 				      new objects */
+
+	//哈希值，当为0没有设置；当为1=sha256的哈希值
 	__le32 fl_cas_hash;        /* UNUSED.  0 = none; 1 = sha256 */
 
-	/* pg -> disk layout */
+	/* pg -> disk layout pg -> disk layout的映射 */
 	__le32 fl_object_stripe_unit;  /* UNUSED.  for per-object parity, if any */
 
-	/* object -> pg layout */
+	/* object -> pg layout 对象 -> pg layout映射 */
 	__le32 fl_unused;       /* unused; used to be preferred primary for pg (-1 for none) */
+
+	//pool的id
 	__le32 fl_pg_pool;      /* namespace, crush rule, rep level */
 } __attribute__ ((packed));
 
@@ -727,7 +738,11 @@ struct ceph_mds_reply_head {
 	__le32 op;
 	__le32 result;
 	__le32 mdsmap_epoch;
+
+	/* true if committed to disk; 用来判断是否已经下刷了disk，或者不需要下刷时，safe就为1*/
 	__u8 safe;                     /* true if committed to disk */
+
+    /* true if dentry, target inode records are included with reply; is_dentry = 1, is_target = 1*/
 	__u8 is_dentry, is_target;     /* true if dentry, target inode records
 					  are included with reply */
 } __attribute__ ((packed));

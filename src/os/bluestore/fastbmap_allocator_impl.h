@@ -72,16 +72,34 @@ inline size_t find_next_set_bit(slot_t slot_val, size_t start_pos)
 class AllocatorLevel
 {
 protected:
-
+  // 一个 slot 有多少个 children。slot 的大小是 64bit。
+  // L0、L2的 children 大小是1bit，所以含有64个。
+  // L1的 children 大小是2bit，所以含有32个。
   virtual uint64_t _children_per_slot() const = 0;
+
+  // 每个 children 之间的磁盘空间长度，也即每个 children 的大小。
+  // L0 的每个 children 间隔长度为：l0_granularity = alloc_unit，默认HDD 64K，SSD 16K
+  // L1 的每个 children 间隔长度为：l1_granularity = 512 * l0_granularity，默认HDD 64K*512=32M, SSD 16K*512=8M
+  // L2 的每个 children 间隔长度为：l2_granularity = (512/2) * l1_granularity，默认HDD 32M*256=8G, SSD 8M*256=2G
   virtual uint64_t _level_granularity() const = 0;
 
 public:
+  // L0 分配的次数，调用_allocate_l0的次数。
   static uint64_t l0_dives;
+
+  // 遍历 L0 slot 的次数。
   static uint64_t l0_iterations;
+
+  // 遍历 L0 slot(部分占用，部分空闲)的次数。
   static uint64_t l0_inner_iterations;
+
+  // L0 分配 slot 的次数。
   static uint64_t alloc_fragments;
+
+  // L1 分配 slot(部分占用，部分空闲)的次数。
   static uint64_t alloc_fragments_fast;
+
+  // L2 分配的次数 ，调用 _allocate_l2的次数。
   static uint64_t l2_allocs;
 
   virtual ~AllocatorLevel()
@@ -97,7 +115,11 @@ class AllocatorLevel01 : public AllocatorLevel
 protected:
   slot_vector_t l0; // set bit means free entry
   slot_vector_t l1;
+
+  // space per entry  默认HDD 64K，SSD 16K
   uint64_t l0_granularity = 0; // space per entry
+
+  // space per entry  默认HDD 64K*512=32M, SSD 16K*512=8M
   uint64_t l1_granularity = 0; // space per entry
 
   size_t partial_l1_count = 0;
@@ -185,6 +207,14 @@ class AllocatorLevel01Loose : public AllocatorLevel01
     }
   }
 
+/*
+  存储在interval_vector_t结构体里面，实际上就是extent_vector，因为分配的磁盘空
+  间不一定是完全连续的，所以会有多个extent，而在往extent_vector插入extent的时候
+  会合并相邻的extent为一个extent。如果max_alloc_size设置了，且单个连续的分配大
+  小超过了max_alloc_size，那么extent的length最大为max_alloc_size，同时这次分配
+  结果也会拆分会多个extent。
+*/
+
   bool _allocate_l0(uint64_t length,
     uint64_t max_length,
     uint64_t l0_pos0, uint64_t l0_pos1,
@@ -267,28 +297,41 @@ protected:
 
   void _init(uint64_t capacity, uint64_t _alloc_unit, bool mark_as_free = true)
   {
+    //alloc_min_size HDD 64K, SSD 16K
     l0_granularity = _alloc_unit;
+    
     // 512 bits at L0 mapped to L1 entry
+    //默认HDD 64K*512=32M, SSD 16K*512=8M
     l1_granularity = l0_granularity * bits_per_slotset;
 
     // capacity to have slot alignment at l1
+    //L1层向上舍入对齐边界：如：capacity=100G，按HDD 8G对齐：100/8=12.5==13*8G=104G
     auto aligned_capacity =
       p2roundup((int64_t)capacity,
         int64_t(l1_granularity * slots_per_slotset * _children_per_slot()));
+
+    //如：104G/32M/32=104，L1层需要104个slots来覆盖100G磁盘大小
     size_t slot_count =
       aligned_capacity / l1_granularity / _children_per_slot();
     // we use set bit(s) as a marker for (partially) free entry
+    //L1层，如例：slot_vector_t l1 扩展为104大小，并标记为1。
     l1.resize(slot_count, mark_as_free ? all_slot_set : all_slot_clear);
 
-    // l0 slot count
+    // l0 slot count //如：HDD 104G/64K/64bits=26624个slots，L0层面需要26624个slots来覆盖磁盘大小。
     size_t slot_count_l0 = aligned_capacity / _alloc_unit / bits_per_slot;
+    
     // we use set bit(s) as a marker for (partially) free entry
+    //L0层，如例：slot_vector_t l0 扩展为26624大小，并标记为1。
     l0.resize(slot_count_l0, mark_as_free ? all_slot_set : all_slot_clear);
 
     partial_l1_count = unalloc_l1_count = 0;
     if (mark_as_free) {
+      //L1层，如例：104*32=3328个L1 alloc_unit(l1_granularity)
       unalloc_l1_count = slot_count * _children_per_slot();
+
+      //如例：100G: p2roundup(104857600K,64K)/64K=1638400个l0_granularity
       auto l0_pos_no_use = p2roundup((int64_t)capacity, (int64_t)l0_granularity) / l0_granularity;
+      
       _mark_alloc_l1_l0(l0_pos_no_use, aligned_capacity / l0_granularity);
     }
   }
@@ -598,6 +641,8 @@ protected:
   ceph::mutex lock = ceph::make_mutex("AllocatorLevel02::lock");
   L1 l1;
   slot_vector_t l2;
+
+  //默认HDD 32M*256=8G, SSD 8M*256=2G
   uint64_t l2_granularity = 0; // space per entry
   uint64_t available = 0;
   uint64_t last_pos = 0;
@@ -618,24 +663,28 @@ protected:
   void _init(uint64_t capacity, uint64_t _alloc_unit, bool mark_as_free = true)
   {
     ceph_assert(isp2(_alloc_unit));
+
+    //计算L1 L0层上占的slot个数
     l1._init(capacity, _alloc_unit, mark_as_free);
 
+    //默认HDD 64K*512=32M, SSD 16K*512=8M, // l1 32 // 8; HDD：32M*32*8=8G
     l2_granularity =
       l1._level_granularity() * l1._children_per_slot() * slots_per_slotset;
 
     // capacity to have slot alignment at l2
     auto aligned_capacity =
       p2roundup((int64_t)capacity, (int64_t)l2_granularity * L1_ENTRIES_PER_SLOT);
-    size_t elem_count = aligned_capacity / l2_granularity / L1_ENTRIES_PER_SLOT;
+    size_t elem_count = aligned_capacity / l2_granularity / L1_ENTRIES_PER_SLOT; //例如：HDD100G：512/8/64=1，即：L2层需要的slots个数1个即可表示100G磁盘
     // we use set bit(s) as a marker for (partially) free entry
-    l2.resize(elem_count, mark_as_free ? all_slot_set : all_slot_clear);
+    l2.resize(elem_count, mark_as_free ? all_slot_set : all_slot_clear);//例如：HDD100G：slot_vector_t l2 扩展为1大小，并标记为1。
 
     if (mark_as_free) {
       // capacity to have slotset alignment at l1
       auto l2_pos_no_use =
 	p2roundup((int64_t)capacity, (int64_t)l2_granularity) / l2_granularity;
       _mark_l2_allocated(l2_pos_no_use, aligned_capacity / l2_granularity);
-      available = p2align(capacity, _alloc_unit);
+      available = p2align(capacity, _alloc_unit); //例如：HDD100G：(100G, 64K)=104857600个可用_alloc_unit单元
+  } else {
     } else {
       available = 0;
     }

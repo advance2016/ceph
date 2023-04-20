@@ -59,6 +59,8 @@ Processor::Processor(AsyncMessenger *r, Worker *w, CephContext *c)
   : msgr(r), net(c), worker(w),
     listen_handler(new C_processor_accept(this)) {}
 
+// processor的处理就是对socket API的封装：socket, bind, listen
+// 创建套接字，绑定到特定端口，进行监听
 int Processor::bind(const entity_addrvec_t &bind_addrs,
 		    const std::set<int>& avoid_ports,
 		    entity_addrvec_t* bound_addrs)
@@ -82,53 +84,55 @@ int Processor::bind(const entity_addrvec_t &bind_addrs,
 
     for (int i = 0; i < conf->ms_bind_retry_count; i++) {
       if (i > 0) {
-	lderr(msgr->cct) << __func__ << " was unable to bind. Trying again in "
-			 << conf->ms_bind_retry_delay << " seconds " << dendl;
-	sleep(conf->ms_bind_retry_delay);
+        lderr(msgr->cct) << __func__ << " was unable to bind. Trying again in "
+                        << conf->ms_bind_retry_delay << " seconds " << dendl;
+        sleep(conf->ms_bind_retry_delay);
       }
 
       if (listen_addr.get_port()) {
-	worker->center.submit_to(
-	  worker->center.get_id(),
-	  [this, k, &listen_addr, &opts, &r]() {
-	    r = worker->listen(listen_addr, k, opts, &listen_sockets[k]);
-	  }, false);
-	if (r < 0) {
-	  lderr(msgr->cct) << __func__ << " unable to bind to " << listen_addr
-			   << ": " << cpp_strerror(r) << dendl;
-	  continue;
-	}
+        //判断目前所在的线程是否是它自己的线程，如果是就直接执行worker->listen，
+        //反之，则去唤醒自己的线程去执行。
+        worker->center.submit_to(
+          worker->center.get_id(),
+          [this, k, &listen_addr, &opts, &r]() {
+            r = worker->listen(listen_addr, k, opts, &listen_sockets[k]);
+          }, false);
+        if (r < 0) {
+          lderr(msgr->cct) << __func__ << " unable to bind to " << listen_addr
+                           << ": " << cpp_strerror(r) << dendl;
+          continue;
+        }
       } else {
-	// try a range of ports
-	for (int port = msgr->cct->_conf->ms_bind_port_min;
-	     port <= msgr->cct->_conf->ms_bind_port_max;
-	     port++) {
-	  if (avoid_ports.count(port))
-	    continue;
+        // try a range of ports
+        for (int port = msgr->cct->_conf->ms_bind_port_min;
+             port <= msgr->cct->_conf->ms_bind_port_max;
+             port++) {
+          if (avoid_ports.count(port))
+            continue;
 
-	  listen_addr.set_port(port);
-	  worker->center.submit_to(
-	    worker->center.get_id(),
-	    [this, k, &listen_addr, &opts, &r]() {
-	      r = worker->listen(listen_addr, k, opts, &listen_sockets[k]);
-	    }, false);
-	  if (r == 0)
-	    break;
-	}
-	if (r < 0) {
-	  lderr(msgr->cct) << __func__ << " unable to bind to " << listen_addr
-			   << " on any port in range "
-			   << msgr->cct->_conf->ms_bind_port_min
-			   << "-" << msgr->cct->_conf->ms_bind_port_max << ": "
-			   << cpp_strerror(r) << dendl;
-	  listen_addr.set_port(0); // Clear port before retry, otherwise we shall fail again.
-	  continue;
-	}
-	ldout(msgr->cct, 10) << __func__ << " bound on random port "
-			     << listen_addr << dendl;
+          listen_addr.set_port(port);
+          worker->center.submit_to(
+            worker->center.get_id(),
+            [this, k, &listen_addr, &opts, &r]() {
+              r = worker->listen(listen_addr, k, opts, &listen_sockets[k]);
+            }, false);
+          if (r == 0)
+            break;
+        }
+        if (r < 0) {
+          lderr(msgr->cct) << __func__ << " unable to bind to " << listen_addr
+        		   << " on any port in range "
+        		   << msgr->cct->_conf->ms_bind_port_min
+        		   << "-" << msgr->cct->_conf->ms_bind_port_max << ": "
+        		   << cpp_strerror(r) << dendl;
+          listen_addr.set_port(0); // Clear port before retry, otherwise we shall fail again.
+          continue;
+        }
+        ldout(msgr->cct, 10) << __func__ << " bound on random port "
+        		     << listen_addr << dendl;
       }
       if (r == 0) {
-	break;
+        break;
       }
     }
 
@@ -156,15 +160,16 @@ void Processor::start()
   // start thread
   worker->center.submit_to(worker->center.get_id(), [this]() {
       for (auto& listen_socket : listen_sockets) {
-	if (listen_socket) {
-          if (listen_socket.fd() == -1) {
-            ldout(msgr->cct, 1) << __func__ 
-                << " Error: processor restart after listen_socket.fd closed. " 
-                << this << dendl;
-            return;
-          }
-	  worker->center.create_file_event(listen_socket.fd(), EVENT_READABLE,
-					   listen_handler); }
+        if (listen_socket) {
+              if (listen_socket.fd() == -1) {
+                ldout(msgr->cct, 1) << __func__ 
+                    << " Error: processor restart after listen_socket.fd closed. " 
+                    << this << dendl;
+                return;
+              }
+          worker->center.create_file_event(listen_socket.fd(), EVENT_READABLE,
+                                        listen_handler); 
+        }
       }
     }, false);
 }
@@ -186,20 +191,20 @@ void Processor::accept()
       ConnectedSocket cli_socket;
       Worker *w = worker;
       if (!msgr->get_stack()->support_local_listen_table())
-	w = msgr->get_stack()->get_worker();
+        w = msgr->get_stack()->get_worker(); //选一个负载较小的worker
       else
-	++w->references;
+        ++w->references;
       int r = listen_socket.accept(&cli_socket, opts, &addr, w);
       if (r == 0) {
-	ldout(msgr->cct, 10) << __func__ << " accepted incoming on sd "
-			     << cli_socket.fd() << dendl;
+        ldout(msgr->cct, 10) << __func__ << " accepted incoming on sd "
+                             << cli_socket.fd() << dendl;
 
-	msgr->add_accept(
-	  w, std::move(cli_socket),
-	  msgr->get_myaddrs().v[listen_socket.get_addr_slot()],
-	  addr);
-	accept_error_num = 0;
-	continue;
+        msgr->add_accept(
+          w, std::move(cli_socket),
+          msgr->get_myaddrs().v[listen_socket.get_addr_slot()],
+          addr);
+        accept_error_num = 0;
+        continue;
       } else {
 	--w->references;
 	if (r == -EINTR) {
@@ -289,19 +294,50 @@ AsyncMessenger::AsyncMessenger(CephContext *cct, entity_name_t name,
   else if (type.find("dpdk") != std::string::npos)
     transport_type = "dpdk";
 
+  /* 
+  类AsyncMessenger的构造函数需要注意，虽然在osd进程的启动过程中，会创建6个
+  messenger，但是他们全部共享一个StackSingleton（内含NetworkStack指针, 函数
+  lookup_or_create_singleton_object保证只会创建一个StackSingleton，因为传入的
+  名称"AsyncMessenger::NetworkStack::"+transport_type是一样的
+  */
   auto single = &cct->lookup_or_create_singleton_object<StackSingleton>(
     "AsyncMessenger::NetworkStack::" + transport_type, true, cct);
+
+  /*
+  利用单例single构造NetworkStack对象，实质是调用"NetworkStack::create(cct,type)"
+  ，后者会根据type的不同来初始化不同的子类，比如RDMAStack，PosixStack或DPDKStack。
+  在NetworkStack实例被构造的同时，还会构造一组Worker供关联于它的AsyncMessenger使
+  用，类似的，这组Worker也会根据ceph.conf而被实例化出不同的子类实例，比如
+  RDMAWorker。这组worker使用"AsyncMessenger->NetworkStack::vector<Worker*>workers"管理。
+  */
+  // PosixNetworkStack
   single->ready(transport_type);
+  
   stack = single->stack.get();
+
+  /*
+  ”启动”协议栈，其主要工作就是针对每一个workers[i]启动一个线程，这个线程的核心
+  任务就是循环执行"Worker.EventCenter.process_events()"，相关的资源都被封装
+  在Worker及其子类中。
+  */
   stack->start();
+
+  // 创建一个本地连接对象用于向自己发送消息
+  // get_worker()会根据Work Load获取当前Worker中的负载最轻的线程
   local_worker = stack->get_worker();
   local_connection = ceph::make_ref<AsyncConnection>(cct, this, &dispatch_queue,
 					 local_worker, true, true);
   init_local_connection();
   reap_handler = new C_handle_reap(this);
   unsigned processor_num = 1;
+
+  /* 构造一组(个)Processor实例，和Worker类似，每个Processor实例都是对一个线程运
+  行资源的封装，在"Processor::start()"中(not here)启动这些线程。使
+  用"AsyncMessenger::vector<Processor*>processors"管理。
+  */
   if (stack->support_local_listen_table())
     processor_num = stack->get_num_worker();
+    
   for (unsigned i = 0; i < processor_num; ++i)
     processors.push_back(new Processor(this, stack->get_worker(i), cct));
 }

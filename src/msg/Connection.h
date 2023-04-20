@@ -90,6 +90,7 @@ public:
    * implementation need to build a own shakehand or sesson then it can be
    * ready to send.
    *
+   *判断是否能够发送消息了。。。。
    * @return true if ready to send, or false otherwise
    */
   virtual bool is_connected() = 0;
@@ -114,6 +115,7 @@ public:
    *
    * @param m The Message to send. The Messenger consumes a single reference
    * when you pass it in.
+   * 主要功能就是这个 ！！！用来发送消息的！！！！
    *
    * @return 0 on success, or -errno on failure.
    */

@@ -4549,12 +4549,16 @@ void Server::handle_client_openc(MDRequestRef& mdr)
 
   dout(7) << "open w/ O_CREAT on " << req->get_filepath() << dendl;
 
+  // 将flag转为cmode，由于是CREATE操作，此处的cmode为CEPH_FILE_MODE_WR(写)、或者CEPH_FILE_MODE_RDWR(读+写)
   int cmode = ceph_flags_to_mode(req->head.args.open.flags);
   if (cmode < 0) {
     respond_to_request(mdr, -CEPHFS_EINVAL);
     return;
   }
 
+  // 客户端未指定O_EXCL标记，代表着：若文件存在则直接打开，若不存在则创建后打开
+  // 此处还做了额外的处理：若文件存在但状态STALE，则查找最新的inode信息再重试（C_MDS_TryFindInode）；
+  // 异常情况下，除非为不存在（-ENOENT），否则直接返回
   bool excl = req->head.args.open.flags & CEPH_O_EXCL;
   CDentry *dn = rdlock_path_xlock_dentry(mdr, true, !excl, true, true);
   if (!dn)

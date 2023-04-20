@@ -212,6 +212,10 @@ int librados::RadosClient::ping_monitor(const string mon_id, string *result)
   return err;
 }
 
+
+/*
+Connect函数是RadosClient的初始化函数，完成了许多的初始化工作
+*/
 int librados::RadosClient::connect()
 {
   int err;
@@ -238,12 +242,13 @@ int librados::RadosClient::connect()
 
   poolctx.start(cct->_conf.get_val<std::uint64_t>("librados_thread_count"));
 
-  // get monmap
+  // get monmap 从配置文件里检查是否有初始的Monitor的地址信息
   err = monclient.build_initial_monmap();
   if (err < 0)
     goto out;
 
   err = -ENOMEM;
+  //创建网络通信模块messenger，并设置相关的Policy信息。
   messenger = Messenger::create_client_messenger(cct, "radosclient");
   if (!messenger)
     goto out;
@@ -257,6 +262,7 @@ int librados::RadosClient::connect()
 
   ldout(cct, 1) << "starting objecter" << dendl;
 
+  //创建objecter对象并初始化。std::nothrow没有空间时返回nullptr
   objecter = new (std::nothrow) Objecter(cct, messenger, &monclient, poolctx);
   if (!objecter)
     goto out;
@@ -276,6 +282,8 @@ int librados::RadosClient::connect()
   monclient.set_want_keys(
       CEPH_ENTITY_TYPE_MON | CEPH_ENTITY_TYPE_OSD | CEPH_ENTITY_TYPE_MGR);
   ldout(cct, 1) << "calling monclient init" << dendl;
+
+  //调用monclient.init()函数初始化monclient。
   err = monclient.init();
   if (err) {
     ldout(cct, 0) << conf->name << " initialization error " << cpp_strerror(-err) << dendl;
@@ -470,6 +478,7 @@ librados::RadosClient::~RadosClient()
   cct = NULL;
 }
 
+//建一个pool相关的上下文信息IoCtxImpl对象。
 int librados::RadosClient::create_ioctx(const char *name, IoCtxImpl **io)
 {
   int64_t poolid = lookup_pool(name);
@@ -673,7 +682,8 @@ bool librados::RadosClient::put() {
   refcnt--;
   return (refcnt == 0);
 }
- 
+
+//pool的同步和异步创建
 int librados::RadosClient::pool_create(string& name,
 				       int16_t crush_rule)
 {
@@ -690,6 +700,9 @@ int librados::RadosClient::pool_create(string& name,
   ceph::condition_variable cond;
   bool done;
   Context *onfinish = new C_SafeCond(mylock, cond, &done, &reply);
+
+  //构造PoolOp操作，通过Monitor的客户端monc发送请求给Monitor创建一个pool，并同
+  //步等待请求的返回。
   objecter->create_pool(name, onfinish, crush_rule);
 
   std::unique_lock l{mylock};
@@ -697,6 +710,8 @@ int librados::RadosClient::pool_create(string& name,
   return reply;
 }
 
+//函数pool_create_async异步创建。与同步方式的区别在于注册了回调函数，当创建成
+//功后，执行回调函数通知完成。
 int librados::RadosClient::pool_create_async(string& name,
 					     PoolAsyncCompletionImpl *c,
 					     int16_t crush_rule)
@@ -836,6 +851,8 @@ void librados::RadosClient::mon_command_async(const vector<string>& cmd,
                                               Context *on_finish)
 {
   std::lock_guard l{lock};
+
+  //把命令发送给Monitor处理
   monclient.start_mon_command(cmd, inbl,
 			      [outs, outbl,
 			       on_finish = std::unique_ptr<Context>(on_finish)]

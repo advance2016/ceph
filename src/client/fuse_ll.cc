@@ -168,6 +168,8 @@ public:
   void iput(Inode *in);
 
   int fd_on_success;
+
+  //Client实例指针作为CephFuse::Handle类的成员变量。
   Client *client;
 
   struct fuse_session *se = nullptr;
@@ -273,6 +275,12 @@ static int getgroups(fuse_req_t req, gid_t **sgids)
 {
 #if FUSE_VERSION >= FUSE_MAKE_VERSION(2, 8)
   ceph_assert(sgids);
+
+  /*
+  Get the current supplementary group IDs for the specified request, Similar 
+  to the getgroups(2) system call, except the return value is always the total 
+  number of group IDs, even if it is larger than the specified size.
+  */
   int c = fuse_req_getgroups(req, 0, NULL);
   if (c < 0) {
     return c;
@@ -304,6 +312,7 @@ static void get_fuse_groups(UserPerm& perms, fuse_req_t req)
     int count = getgroups(req, &gids);
 
     if (count > 0) {
+      // 把用户组信息设置到perms
       perms.init_gids(gids, count);
     } else if (count < 0) {
       derr << __func__ << ": getgroups failed: " << cpp_strerror(-count)
@@ -315,6 +324,7 @@ static void get_fuse_groups(UserPerm& perms, fuse_req_t req)
 
 static CephFuse::Handle *fuse_ll_req_prepare(fuse_req_t req)
 {
+  // 提取用户数据
   CephFuse::Handle *cfuse = (CephFuse::Handle *)fuse_req_userdata(req);
   cfuse->set_fuse_req(req);
   return cfuse;
@@ -622,12 +632,18 @@ static void fuse_ll_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 			  mode_t mode)
 {
   CephFuse::Handle *cfuse = fuse_ll_req_prepare(req);
+
+  // Get the context from the request
   const struct fuse_ctx *ctx = fuse_req_ctx(req);
   Inode *i2, *i1;
   struct fuse_entry_param fe;
 
   memset(&fe, 0, sizeof(fe));
+
+  // 初始化用户权限
   UserPerm perm(ctx->uid, ctx->gid);
+
+  // 从req中获取用户组信息
   get_fuse_groups(perm, req);
 #ifdef HAVE_SYS_SYNCFS
   auto fuse_multithreaded = cfuse->client->cct->_conf.get_val<bool>(
@@ -657,6 +673,7 @@ static void fuse_ll_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   }
 #endif
 
+  // 获取父目录的inode
   i1 = cfuse->iget(parent);
   if (!i1) {
     fuse_reply_err(req, get_sys_errno(CEPHFS_EINVAL));
@@ -667,6 +684,8 @@ static void fuse_ll_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
   if (r == 0) {
     fe.ino = cfuse->make_fake_ino(fe.attr.st_ino, fe.attr.st_dev);
     fe.attr.st_rdev = new_encode_dev(fe.attr.st_rdev);
+
+    // Reply with a directory entry
     fuse_reply_entry(req, &fe);
   } else {
     fuse_reply_err(req, get_sys_errno(-r));
@@ -1559,6 +1578,10 @@ int CephFuse::Handle::start()
     return EBUSY;
   }
 
+  /*
+  在start中会将fuse_ll_oper传参给fuse_lowlevel_new。而fuse_ll_opers是
+  truct fuse_lowlevel_ops的实例，fuse_ll_oper中定义了fuse的文件操作函数。
+  */
 #if FUSE_VERSION >= FUSE_MAKE_VERSION(3, 0)
   se = fuse_session_new(&args, &fuse_ll_oper, sizeof(fuse_ll_oper), this);
   if (!se) {
@@ -1566,12 +1589,17 @@ int CephFuse::Handle::start()
     return EDOM;
   }
 #else
+  // 调用libfuse接口完成目录挂载
   ch = fuse_mount(mountpoint, &args);
   if (!ch) {
     derr << "fuse_mount(mountpoint=" << mountpoint << ") failed." << dendl;
     return EIO;
   }
 
+  /* 创建lowlevel fuse session，其中fuse_ll_oper是定义好的各种posix接口的用户
+  态实现，这里涉及到libfuse的两种用法，
+  参考：https://www.lijiaocn.com/%E6%8A%80%E5%B7%A7/2019/01/21/linux-fuse-filesystem-in-userspace-usage.html
+  */
   se = fuse_lowlevel_new(&args, &fuse_ll_oper, sizeof(fuse_ll_oper), this);
   if (!se) {
     derr << "fuse_lowlevel_new failed" << dendl;
@@ -1581,6 +1609,8 @@ int CephFuse::Handle::start()
 
   signal(SIGTERM, SIG_DFL);
   signal(SIGINT, SIG_DFL);
+
+  // Exit session on HUP, TERM and INT signals and ignore PIPE signal
   if (fuse_set_signal_handlers(se) == -1) {
     derr << "fuse_set_signal_handlers failed" << dendl;
     return ENOSYS;
@@ -1592,6 +1622,7 @@ int CephFuse::Handle::start()
     return ENOSYS;
   }
 #else
+  // Assign a channel to a session
   fuse_session_add_chan(se, ch);
 #endif
 
@@ -1600,8 +1631,11 @@ int CephFuse::Handle::start()
 
 int CephFuse::Handle::loop()
 {
+  //在fuse_session_loop_mt中会生成多个线程去监听io操作
   auto fuse_multithreaded = client->cct->_conf.get_val<bool>(
     "fuse_multithreaded");
+
+  // Enter a multi-threaded event loop，开始处理IO请求
   if (fuse_multithreaded) {
 #if FUSE_VERSION >= FUSE_MAKE_VERSION(3, 1)
     {
@@ -1656,6 +1690,7 @@ uint64_t CephFuse::Handle::fino_snap(uint64_t fino)
 
 Inode * CephFuse::Handle::iget(fuse_ino_t fino)
 {
+  //FUSE_ROOT_ID = 1
   if (fino == FUSE_ROOT_ID)
     return client->get_root();
 

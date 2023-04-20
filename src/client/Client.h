@@ -239,6 +239,12 @@ struct dir_result_t {
   struct dirent de;
 };
 
+/*
+ceph定义的文件操作函数都封装在类Client中
+Client实例指针作为CephFuse::Handle类的成员变量。
+而CephFuse::Handle实例指针又作为CephFuse类的成员变量，这样CephFuse实例可以通过
+client来调用文件系统操作函数来进行文件操作。
+*/
 class Client : public Dispatcher, public md_config_obs_t {
 public:
   friend class C_Block_Sync; // Calls block map and protected helpers
@@ -1562,6 +1568,7 @@ private:
 
   ceph::condition_variable mount_cond, sync_cond;
 
+  //用来保存客户端对池的操作属性：即读或写。
   std::map<std::pair<int64_t,std::string>, int> pool_perms;
   std::list<ceph::condition_variable*> waiting_for_pool_perm;
 

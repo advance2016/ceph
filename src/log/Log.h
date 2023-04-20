@@ -99,7 +99,10 @@ private:
   pthread_t m_flush_mutex_holder;
 
   EntryVector m_new;    ///< new entries
+
+  // 所有的消息都会存放到该队列中去，哪怕优先级比较低，不会打印到日志文件中去
   EntryRing m_recent; ///< recent (less new) entries we've already written at low detail
+
   EntryVector m_flush; ///< entries to be flushed (here to optimize heap allocations)
 
   std::string m_log_file;
@@ -124,6 +127,7 @@ private:
 
   std::vector<char> m_log_buf;
 
+  // 控制线程是否终止
   bool m_stop = false;
 
   std::size_t m_max_new = DEFAULT_MAX_NEW;

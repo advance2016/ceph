@@ -660,11 +660,15 @@ int librados::IoCtxImpl::operate(const object_t& oid, ::ObjectOperation *o,
   int op = o->ops[0].op.op;
   ldout(client->cct, 10) << ceph_osd_op_name(op) << " oid=" << oid
 			 << " nspace=" << oloc.nspace << dendl;
+
+  //把ObjectOperation类型的封装成Op类型，添加了object_locator_t相关的pool信息。
   Objecter::Op *objecter_op = objecter->prepare_mutate_op(
     oid, oloc,
     *o, snapc, ut,
     flags | extra_op_flags,
     oncommit, &ver);
+
+  //把消息发送出去
   objecter->op_submit(objecter_op);
 
   {

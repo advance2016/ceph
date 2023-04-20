@@ -24,16 +24,17 @@ enum common_init_flags_t {
   // Set up defaults that make sense for an unprivileged daemon
   CINIT_FLAG_UNPRIVILEGED_DAEMON_DEFAULTS = 0x1,
 
-  // By default, don't read a configuration file OR contact mons
+  // By default, don't read a configuration file OR contact mons 不去读config_file
   CINIT_FLAG_NO_DEFAULT_CONFIG_FILE = 0x2,
 
-  // Don't close stderr (in daemonize)
+  // Don't close stderr (in daemonize) 不关闭stderr
   CINIT_FLAG_NO_CLOSE_STDERR = 0x4,
 
-  // don't do anything daemonish, like create /var/run/ceph, or print a banner
+  // don't do anything daemonish, like create /var/run/ceph, or print a banner 
+  // 不生成/var/run/ceph 和  不打印banner .
   CINIT_FLAG_NO_DAEMON_ACTIONS = 0x8,
 
-  // don't drop privileges
+  // don't drop privileges 设置RGW 使用者.uid gid
   CINIT_FLAG_DEFER_DROP_PRIVILEGES = 0x10,
 
   // don't contact mons for config

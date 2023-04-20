@@ -69,6 +69,9 @@ struct FiredFileEvent {
  * EventDriver is a wrap of event mechanisms depends on different OS.
  * For example, Linux will use epoll(2), BSD will use kqueue(2) and select will
  * be used for worst condition.
+ * EventDriver是一个抽象的接口，定义了添加事件监听，删除事件监听，获取触发的事件的接口。
+ * 针对不同的IO多路复用机制，实现了不同的类。SelectDriver实现了select的方式。
+ * EpollDriver实现了epoll的网络事件处理方式。KqueueDriver是FreeBSD实现kqueue事件处理模型。
  */
 class EventDriver {
  public:
@@ -83,10 +86,11 @@ class EventDriver {
 
 /*
  * EventCenter maintain a set of file descriptor and handle registered events.
+ * 保存所有事件，并提供了处理事件的相关函数。
  */
 class EventCenter {
  public:
-  // should be enough;
+  // should be enough; 进程的EventCenter数量
   static const int MAX_EVENTCENTER = 24;
 
  private:
@@ -100,16 +104,17 @@ class EventCenter {
     }
   };
 
+  //FileEvent事件，也就是socket对应的事件。
   struct FileEvent {
-    int mask;
-    EventCallbackRef read_cb;
-    EventCallbackRef write_cb;
+    int mask;  //标志
+    EventCallbackRef read_cb;  //处理读操作的回调函数
+    EventCallbackRef write_cb;  //处理写操作的回调函数
     FileEvent(): mask(0), read_cb(NULL), write_cb(NULL) {}
   };
 
   struct TimeEvent {
-    uint64_t id;
-    EventCallbackRef time_cb;
+    uint64_t id;  //时间事件的ID号
+    EventCallbackRef time_cb;  //事件处理的回调函数
 
     TimeEvent(): id(0), time_cb(NULL) {}
   };
@@ -118,6 +123,7 @@ class EventCenter {
   /**
      * A Poller object is invoked once each time through the dispatcher's
      * inner polling loop.
+     * 类Poller 用于轮询事件，主要用于DPDK 模式。在PosixStack模式里没有用。
      */
   class Poller {
    public:
@@ -156,22 +162,40 @@ class EventCenter {
   std::string type;
   int nevent;
   // Used only to external event
+  // 归属的Worker线程
   pthread_t owner = 0;
+  //外部事件
   std::mutex external_lock;
+
+  //外部事件个数
   std::atomic_ulong external_num_events;
   std::deque<EventCallbackRef> external_events;
+  
+  //socket事件， 其下标是socket对应的fd
   std::vector<FileEvent> file_events;
+
+  //底层事件监控机制, 异步机制抽象类对象，在EventCenter::init()中根据配置确定，
+  // 比如支持EPOLL，就会使用EpollDriver
   EventDriver *driver;
+
+  //时间事件 [expire time point， TimeEvent]
   std::multimap<clock_type::time_point, TimeEvent> time_events;
   // Keeps track of all of the pollers currently defined.  We don't
   // use an intrusive list here because it isn't reentrant: we need
   // to add/remove elements while the center is traversing the list.
   std::vector<Poller*> pollers;
+
+  //时间事件的map [id，  iterator of [expire time point，time_event]]
   std::map<uint64_t, std::multimap<clock_type::time_point, TimeEvent>::iterator> event_map;
   uint64_t time_event_next_id;
+
+  //触发执行外部事件的fd
   int notify_receive_fd;
   int notify_send_fd;
   ceph::NetHandler net;
+
+  // notify_receive_fd的READABLE时的handler，作为external events在file events中
+  // 的代理，这个handler只是将字符从管道中取出而已
   EventCallbackRef notify_handler;
   unsigned center_id;
   AssociatedCenters *global_centers = nullptr;
@@ -200,15 +224,29 @@ class EventCenter {
   EventDriver *get_driver() { return driver; }
 
   // Used by internal thread
+  //创建file event
   int create_file_event(int fd, int mask, EventCallbackRef ctxt);
+
+  //创建time event
   uint64_t create_time_event(uint64_t milliseconds, EventCallbackRef ctxt);
+
+  //删除file event
   void delete_file_event(int fd, int mask);
+
+  //删除 time event
   void delete_time_event(uint64_t id);
+
+  //处理事件
   int process_events(unsigned timeout_microseconds, ceph::timespan *working_dur = nullptr);
+
+  //唤醒Worker，本质就是写写fd，这样读fd可读，线程得以唤醒
   void wakeup();
 
   // Used by external thread
+  //直接投递EventCallback类型的事件处理函数
   void dispatch_event_external(EventCallbackRef e);
+
+  //判断调用者是Worker线程
   inline bool in_thread() const {
     return pthread_equal(pthread_self(), owner);
   }
@@ -243,6 +281,8 @@ class EventCenter {
   };
 
  public:
+  //处理func类型的事件处理函数
+  //使用f构造EventCallback
   template <typename func>
   void submit_to(int i, func &&f, bool always_async = false) {
     ceph_assert(i < MAX_EVENTCENTER && global_centers);
@@ -251,11 +291,13 @@ class EventCenter {
     if (always_async) {
       C_submit_event<func> *event = new C_submit_event<func>(std::move(f), true);
       c->dispatch_event_external(event);
-    } else if (c->in_thread()) {
+    } else if (c->in_thread()) { // c->in_thread()就是判断是否是自己的线程
       f();
       return;
     } else {
-      C_submit_event<func> event(std::move(f), false);
+      C_submit_event<func> event(std::move(f), false); // 创建回调类
+
+      //去唤醒epoll_wait然后去执行回调函数event->do_request
       c->dispatch_event_external(&event);
       event.wait();
     }

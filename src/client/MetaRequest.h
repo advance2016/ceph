@@ -20,7 +20,10 @@ class dir_result_t;
 
 struct MetaRequest {
 private:
-  InodeRef _inode, _old_inode, _other_inode;
+  InodeRef _inode, _old_inode, _other_inode;  // _inode为创建目录的父目录的inode指针
+                                              // 这里_inode->ino = 1
+
+  //associated with path, _dentry->dir是父目录的Dir，_dentry->name = "test"
   Dentry *_dentry = NULL;     //associated with path
   Dentry *_old_dentry = NULL; //associated with path2
   int abort_rc = 0;
@@ -28,12 +31,19 @@ public:
   ceph::coarse_mono_time created = ceph::coarse_mono_clock::zero();
   uint64_t tid = 0;
   utime_t  op_stamp;
+
+  // head.op = CEPH_MDS_OP_MKDIR  
   ceph_mds_request_head head;
+
+  // path.ino = 0x1（父目录的inode号）, path.path = "test"
   filepath path, path2;
   std::string alternate_name;
   bufferlist data;
   int inode_drop = 0;   //the inode caps this operation will drop
   int inode_unless = 0; //unless we have these caps already
+
+  // dentry_drop = CEPH_CAP_FILE_SHARED = "Fs",在send_request过程中，会释放掉父目录的Inode的caps的"Fs"权限
+  // dentry_unless = CEPH_CAP_FILE_EXCL = "Fx"
   int old_inode_drop = 0, old_inode_unless = 0;
   int dentry_drop = 0, dentry_unless = 0;
   int old_dentry_drop = 0, old_dentry_unless = 0;
@@ -59,18 +69,29 @@ public:
   dir_result_t *dirp = NULL;
 
   //possible responses
+  // 收到unsafe的回复时，got_unsafe为true
   bool got_unsafe = false;
 
+  // 插入到session的requests链表中  
   xlist<MetaRequest*>::item item;
+
+  // 收到unsafe回复后，插入到session的unsafe_requests链表中。
   xlist<MetaRequest*>::item unsafe_item;
+
+  // 收到unsafe回复且涉及到父目录操作（在父目录下创建/删除文件/目录）,插入到父目录Inode的unsafe_ops链表中
   xlist<MetaRequest*>::item unsafe_dir_item;
+
+  // 收到unsafe回复且请求需要获取目的inode信息，插入到自己Inode的unsafe_ops链表中
+  // 上述4个链表节点，都在收到safe回复后，会将链表节点从各自的链表中删除
   xlist<MetaRequest*>::item unsafe_target_item;
 
   ceph::condition_variable *caller_cond = NULL;   // who to take up
   ceph::condition_variable *dispatch_cond = NULL; // who to kick back
   std::list<ceph::condition_variable*> waitfor_safe;
 
+  // target是创建的目录的Inode指针，从mds的回复中组装而成。
   InodeRef target;
+  
   UserPerm perms;
 
   explicit MetaRequest(int op) :

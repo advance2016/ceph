@@ -27,6 +27,7 @@ void cls_free(void *p)
   free(p);
 }
 
+// 注册一个模块
 int cls_register(const char *name, cls_handle_t *handle)
 {
   ClassHandler::ClassData *cls = \
@@ -42,6 +43,7 @@ int cls_unregister(cls_handle_t handle)
   return 1;
 }
 
+//注册一个模块的方法
 int cls_register_method(cls_handle_t hclass, const char *method,
                         int flags,
                         cls_method_call_t class_call, cls_method_handle_t *handle)

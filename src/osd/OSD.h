@@ -122,10 +122,10 @@ public:
   void maybe_inject_dispatch_delay() {
     if (g_conf()->osd_debug_inject_dispatch_delay_probability > 0) {
       if (rand() % 10000 <
-	  g_conf()->osd_debug_inject_dispatch_delay_probability * 10000) {
-	utime_t t;
-	t.set_from_double(g_conf()->osd_debug_inject_dispatch_delay_duration);
-	t.sleep();
+      g_conf()->osd_debug_inject_dispatch_delay_probability * 10000) {
+    utime_t t;
+    t.set_from_double(g_conf()->osd_debug_inject_dispatch_delay_duration);
+    t.sleep();
       }
     }
   }
@@ -207,12 +207,12 @@ public:
   }
 
   void maybe_share_map(Connection *con,
-		       const OSDMapRef& osdmap,
-		       epoch_t peer_epoch_lb=0);
+               const OSDMapRef& osdmap,
+               epoch_t peer_epoch_lb=0);
 
   void send_map(class MOSDMap *m, Connection *con);
   void send_incremental_map(epoch_t since, Connection *con,
-			    const OSDMapRef& osdmap);
+                const OSDMapRef& osdmap);
   MOSDMap *build_incremental_map_msg(epoch_t from, epoch_t to,
                                        OSDSuperblock& superblock);
 
@@ -236,7 +236,7 @@ public:
 
   void reply_op_error(OpRequestRef op, int err);
   void reply_op_error(OpRequestRef op, int err, eversion_t v, version_t uv,
-		      std::vector<pg_log_op_return_item_t> op_returns);
+              std::vector<pg_log_op_return_item_t> op_returns);
   void handle_misdirected_op(PG *pg, OpRequestRef op);
 
  private:
@@ -292,7 +292,7 @@ public:
 
   void _enqueue(PG *pg, uint64_t priority) {
     if (!agent_queue.empty() &&
-	agent_queue.rbegin()->first < priority)
+    agent_queue.rbegin()->first < priority)
       agent_valid_iterator = false;  // inserting higher-priority queue
     std::set<PGRef>& nq = agent_queue[priority];
     if (nq.empty())
@@ -309,7 +309,7 @@ public:
     oq.erase(p);
     if (oq.empty()) {
       if (agent_queue.rbegin()->first == old_priority)
-	agent_valid_iterator = false;
+    agent_valid_iterator = false;
       agent_queue.erase(old_priority);
     }
   }
@@ -402,10 +402,10 @@ public:
     if ((unsigned)rand() % 1000 > promote_probability_millis)
       return true;  // yes throttle (no promote)
     if (promote_max_objects &&
-	promote_counter.objects > promote_max_objects)
+    promote_counter.objects > promote_max_objects)
       return true;  // yes throttle
     if (promote_max_bytes &&
-	promote_counter.bytes > promote_max_bytes)
+    promote_counter.bytes > promote_max_bytes)
       return true;  // yes throttle
     return false;   //  no throttle (promote)
   }
@@ -468,11 +468,11 @@ public:
   std::set<pg_t> sent_ready_to_merge_source;
 
   void set_ready_to_merge_source(PG *pg,
-				 eversion_t version);
+                 eversion_t version);
   void set_ready_to_merge_target(PG *pg,
-				 eversion_t version,
-				 epoch_t last_epoch_started,
-				 epoch_t last_epoch_clean);
+                 eversion_t version,
+                 epoch_t last_epoch_started,
+                 epoch_t last_epoch_clean);
   void set_not_ready_to_merge_source(pg_t source);
   void set_not_ready_to_merge_target(pg_t target, pg_t source);
   void clear_ready_to_merge(PG *pg);
@@ -494,7 +494,7 @@ private:
   friend std::ostream& operator<<(std::ostream&, const pg_temp_t&);
 public:
   void queue_want_pg_temp(pg_t pgid, const std::vector<int>& want,
-			  bool forced = false);
+              bool forced = false);
   void remove_want_pg_temp(pg_t pgid);
   void requeue_pg_temp();
   void send_pg_temp();
@@ -563,9 +563,9 @@ public:
   void queue_scrub_maps_compared(PG* pg, Scrub::scrub_prio_t with_priority);
 
   void queue_for_rep_scrub(PG* pg,
-			   Scrub::scrub_prio_t with_high_priority,
-			   unsigned int qu_priority,
-			   Scrub::act_token_t act_token);
+               Scrub::scrub_prio_t with_high_priority,
+               unsigned int qu_priority,
+               Scrub::act_token_t act_token);
 
   /// Signals a change in the number of in-flight recovery writes
   void queue_scrub_replica_pushes(PG *pg, Scrub::scrub_prio_t with_priority);
@@ -574,9 +574,9 @@ public:
   /// trigger a re-check of the availability of the scrub map prepared by the
   /// backend.
   void queue_for_rep_scrub_resched(PG* pg,
-				   Scrub::scrub_prio_t with_high_priority,
-				   unsigned int qu_priority,
-				   Scrub::act_token_t act_token);
+                   Scrub::scrub_prio_t with_high_priority,
+                   unsigned int qu_priority,
+                   Scrub::act_token_t act_token);
 
   void queue_for_pg_delete(spg_t pgid, epoch_t e);
   bool try_finish_pg_delete(PG *pg, unsigned old_pg_num);
@@ -596,9 +596,9 @@ private:
   /// queue a scrub-related message for a PG
   template <class MSG_TYPE>
   void queue_scrub_event_msg(PG* pg,
-			     Scrub::scrub_prio_t with_priority,
-			     unsigned int qu_priority,
-			     Scrub::act_token_t act_token);
+                 Scrub::scrub_prio_t with_priority,
+                 unsigned int qu_priority,
+                 Scrub::act_token_t act_token);
 
   /// An alternative version of queue_scrub_event_msg(), in which the queuing priority is
   /// provided by the executing scrub (i.e. taken from PgScrubber::m_flags)
@@ -646,7 +646,7 @@ public:
     std::lock_guard l(recovery_lock);
     awaiting_throttle.remove_if(
       [pg](decltype(awaiting_throttle)::const_reference awaiting ) {
-        return awaiting.pg.get() == pg;
+    return awaiting.second.get() == pg;
       });
   }
 
@@ -681,8 +681,8 @@ public:
   }
 
   void queue_check_readable(spg_t spgid,
-			    epoch_t lpr,
-			    ceph::signedspan delay = ceph::signedspan::zero());
+                epoch_t lpr,
+                ceph::signedspan delay = ceph::signedspan::zero());
 
   // osd map cache (past osd maps)
   ceph::mutex map_cache_lock = ceph::make_mutex("OSDService::map_cache_lock");
@@ -1047,9 +1047,9 @@ struct OSDShard {
     std::set<std::pair<spg_t,epoch_t>> *merge_pgs);
   void _prime_splits(std::set<std::pair<spg_t,epoch_t>> *pgids);
   void prime_splits(const OSDMapRef& as_of_osdmap,
-		    std::set<std::pair<spg_t,epoch_t>> *pgids);
+            std::set<std::pair<spg_t,epoch_t>> *pgids);
   void prime_merges(const OSDMapRef& as_of_osdmap,
-		    std::set<std::pair<spg_t,epoch_t>> *merge_pgs);
+            std::set<std::pair<spg_t,epoch_t>> *merge_pgs);
   void register_and_wake_split_child(PG *pg);
   void unprime_split_children(spg_t parent, unsigned old_pg_num);
   void update_scheduler_config();
@@ -1062,7 +1062,7 @@ struct OSDShard {
 };
 
 class OSD : public Dispatcher,
-	    public md_config_obs_t {
+        public md_config_obs_t {
   using OpSchedulerItem = ceph::osd::scheduler::OpSchedulerItem;
 
   /** OSD **/
@@ -1129,7 +1129,7 @@ protected:
   class OSDSocketHook *asok_hook;
   using PGRefOrError = std::tuple<std::optional<PGRef>, int>;
     PGRefOrError locate_asok_target(const cmdmap_t& cmdmap,
-				    std::stringstream& ss, bool only_primary);
+                    std::stringstream& ss, bool only_primary);
   int asok_route_to_pg(bool only_primary,
     std::string_view prefix,
     cmdmap_t cmdmap,
@@ -1162,14 +1162,14 @@ public:
   static ghobject_t make_snapmapper_oid() {
     return ghobject_t(hobject_t(
       sobject_t(
-	object_t("snapmapper"),
-	0)));
+    object_t("snapmapper"),
+    0)));
   }
   static ghobject_t make_purged_snaps_oid() {
     return ghobject_t(hobject_t(
       sobject_t(
-	object_t("purged_snaps"),
-	0)));
+    object_t("purged_snaps"),
+    0)));
   }
 
   static ghobject_t make_pg_log_oid(spg_t pg) {
@@ -1195,9 +1195,9 @@ public:
   static ghobject_t make_final_pool_info_oid(int64_t pool) {
     return ghobject_t(
       hobject_t(
-	sobject_t(
-	  object_t(std::string("final_pool_") + stringify(pool)),
-	  CEPH_NOSNAP)));
+    sobject_t(
+      object_t(std::string("final_pool_") + stringify(pool)),
+      CEPH_NOSNAP)));
   }
 
   static ghobject_t make_pg_num_history_oid() {
@@ -1205,9 +1205,9 @@ public:
   }
 
   static void recursive_remove_collection(CephContext* cct,
-					  ObjectStore *store,
-					  spg_t pgid,
-					  coll_t tmp);
+                      ObjectStore *store,
+                      spg_t pgid,
+                      coll_t tmp);
 
   /**
    * get_osd_initial_compat_set()
@@ -1301,7 +1301,7 @@ public:
 
 private:
 
-  ShardedThreadPool osd_op_tp;
+  ShardedThreadPool osd_op_tp;  //工作线程
 
   void get_latest_osdmap();
 
@@ -1329,8 +1329,8 @@ private:
     std::set<ceph::ref_t<Session>> sessions_to_check;
     get_sessions_waiting_for_map(&sessions_to_check);
     for (auto i = sessions_to_check.begin();
-	 i != sessions_to_check.end();
-	 sessions_to_check.erase(i++)) {
+     i != sessions_to_check.end();
+     sessions_to_check.erase(i++)) {
       std::lock_guard l{(*i)->session_dispatch_lock};
       dispatch_session_waiting(*i, get_osdmap());
     }
@@ -1435,14 +1435,14 @@ private:
 
     void clear_mark_down(Connection *except = nullptr) {
       if (con_back && con_back != except) {
-	con_back->mark_down();
-	con_back->clear_priv();
-	con_back.reset(nullptr);
+    con_back->mark_down();
+    con_back->clear_priv();
+    con_back.reset(nullptr);
       }
       if (con_front && con_front != except) {
-	con_front->mark_down();
-	con_front->clear_priv();
-	con_front.reset(nullptr);
+    con_front->mark_down();
+    con_front->clear_priv();
+    con_front.reset(nullptr);
       }
     }
   };
@@ -1511,9 +1511,9 @@ public:
       switch (m->get_type()) {
       case CEPH_MSG_PING:
       case MSG_OSD_PING:
-	return true;
+    return true;
       default:
-	return false;
+    return false;
       }
     }
     void ms_fast_dispatch(Message *m) override {
@@ -1588,9 +1588,9 @@ protected:
     bool m_fast_shutdown = false;
   public:
     ShardedOpWQ(OSD *o,
-		ceph::timespan ti,
-		ceph::timespan si,
-		ShardedThreadPool* tp)
+        ceph::timespan ti,
+        ceph::timespan si,
+        ShardedThreadPool* tp)
       : ShardedThreadPool::ShardedWQ<OpSchedulerItem>(ti, si, tp),
         osd(o) {
     }
@@ -1613,35 +1613,35 @@ protected:
 
     void return_waiting_threads() override {
       for(uint32_t i = 0; i < osd->num_shards; i++) {
-	OSDShard* sdata = osd->shards[i];
-	assert (NULL != sdata);
-	std::scoped_lock l{sdata->sdata_wait_lock};
-	sdata->stop_waiting = true;
-	sdata->sdata_cond.notify_all();
+    OSDShard* sdata = osd->shards[i];
+    assert (NULL != sdata);
+    std::scoped_lock l{sdata->sdata_wait_lock};
+    sdata->stop_waiting = true;
+    sdata->sdata_cond.notify_all();
       }
     }
 
     void stop_return_waiting_threads() override {
       for(uint32_t i = 0; i < osd->num_shards; i++) {
-	OSDShard* sdata = osd->shards[i];
-	assert (NULL != sdata);
-	std::scoped_lock l{sdata->sdata_wait_lock};
-	sdata->stop_waiting = false;
+    OSDShard* sdata = osd->shards[i];
+    assert (NULL != sdata);
+    std::scoped_lock l{sdata->sdata_wait_lock};
+    sdata->stop_waiting = false;
       }
     }
 
     void dump(ceph::Formatter *f) {
       for(uint32_t i = 0; i < osd->num_shards; i++) {
-	auto &&sdata = osd->shards[i];
+    auto &&sdata = osd->shards[i];
 
-	char queue_name[32] = {0};
-	snprintf(queue_name, sizeof(queue_name), "%s%" PRIu32, "OSD:ShardedOpWQ:", i);
-	ceph_assert(NULL != sdata);
+    char queue_name[32] = {0};
+    snprintf(queue_name, sizeof(queue_name), "%s%" PRIu32, "OSD:ShardedOpWQ:", i);
+    ceph_assert(NULL != sdata);
 
-	std::scoped_lock l{sdata->shard_lock};
-	f->open_object_section(queue_name);
-	sdata->scheduler->dump(*f);
-	f->close_section();
+    std::scoped_lock l{sdata->shard_lock};
+    f->open_object_section(queue_name);
+    sdata->scheduler->dump(*f);
+    f->close_section();
       }
     }
 
@@ -1651,18 +1651,18 @@ protected:
       ceph_assert(sdata);
       std::lock_guard l(sdata->shard_lock);
       if (thread_index < osd->num_shards) {
-	return sdata->scheduler->empty() && sdata->context_queue.empty();
+        return sdata->scheduler->empty() && sdata->context_queue.empty();
       } else {
-	return sdata->scheduler->empty();
+        return sdata->scheduler->empty();
       }
     }
 
     void handle_oncommits(std::list<Context*>& oncommits) {
       for (auto p : oncommits) {
-	p->complete(0);
+        p->complete(0);
       }
     }
-  } op_shardedwq;
+  } op_shardedwq;  //工作队列
 
 
   void enqueue_op(spg_t pg, OpRequestRef&& op, epoch_t epoch);
@@ -1764,7 +1764,7 @@ protected:
   std::map<epoch_t,std::map<spg_t,std::map<spg_t,PGRef>>> merge_waiters;
 
   bool add_merge_waiter(OSDMapRef nextmap, spg_t target, PGRef source,
-			unsigned need);
+            unsigned need);
 
   // -- placement groups --
   std::atomic<size_t> num_pgs = {0};
@@ -1793,7 +1793,7 @@ protected:
   PG* _make_pg(OSDMapRef createmap, spg_t pgid);
 
   bool maybe_wait_for_max_pg(const OSDMapRef& osdmap,
-			     spg_t pgid, bool is_mon_create);
+                 spg_t pgid, bool is_mon_create);
   void resume_creating_pg();
 
   void load_pgs();
@@ -1896,10 +1896,10 @@ protected:
    * @pre op was sent by an OSD using the cluster messenger
    */
   bool require_same_peer_instance(const Message *m, const OSDMapRef& map,
-				  bool is_fast_dispatch);
+                  bool is_fast_dispatch);
 
   bool require_same_or_newer_map(OpRequestRef& op, epoch_t e,
-				 bool is_fast_dispatch);
+                 bool is_fast_dispatch);
 
   void handle_fast_pg_create(MOSDPGCreate2 *m);
   void handle_pg_query_nopg(const MQuery& q);
@@ -2012,18 +2012,18 @@ private:
 
   // static bits
   static int mkfs(CephContext *cct,
-		  std::unique_ptr<ObjectStore> store,
-		  uuid_d fsid,
-		  int whoami,
-		  std::string osdspec_affinity);
+          std::unique_ptr<ObjectStore> store,
+          uuid_d fsid,
+          int whoami,
+          std::string osdspec_affinity);
 
   /* remove any non-user xattrs from a std::map of them */
   void filter_xattrs(std::map<std::string, ceph::buffer::ptr>& attrs) {
     for (std::map<std::string, ceph::buffer::ptr>::iterator iter = attrs.begin();
-	 iter != attrs.end();
-	 ) {
+     iter != attrs.end();
+     ) {
       if (('_' != iter->first.at(0)) || (iter->first.size() == 1))
-	attrs.erase(iter++);
+    attrs.erase(iter++);
       else ++iter;
     }
   }
@@ -2034,8 +2034,8 @@ private:
   int update_crush_location();
 
   static int write_meta(CephContext *cct,
-			ObjectStore *store,
-			uuid_d& cluster_fsid, uuid_d& osd_fsid, int whoami, std::string& osdspec_affinity);
+            ObjectStore *store,
+            uuid_d& cluster_fsid, uuid_d& osd_fsid, int whoami, std::string& osdspec_affinity);
 
   void handle_scrub(class MOSDScrub *m);
   void handle_fast_scrub(class MOSDScrub2 *m);
@@ -2068,11 +2068,11 @@ private:
 
 public:
   static int peek_meta(ObjectStore *store,
-		       std::string *magic,
-		       uuid_d *cluster_fsid,
-		       uuid_d *osd_fsid,
-		       int *whoami,
-		       ceph_release_t *min_osd_release);
+               std::string *magic,
+               uuid_d *cluster_fsid,
+               uuid_d *osd_fsid,
+               int *whoami,
+               ceph_release_t *min_osd_release);
 
 
   // startup/shutdown

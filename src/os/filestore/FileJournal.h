@@ -48,19 +48,19 @@ class FileJournal :
 public:
   /// Protected by finisher_lock
   struct completion_item {
-    uint64_t seq;
-    Context *finish;
-    utime_t start;
+    uint64_t seq;    //日志的序号
+    Context *finish;  //完成后的回调函数
+    utime_t start;  //提交时间
     TrackedOpRef tracked_op;
     completion_item(uint64_t o, Context *c, utime_t s, TrackedOpRef opref)
       : seq(o), finish(c), start(s), tracked_op(opref) {}
     completion_item() : seq(0), finish(0), start(0) {}
   };
   struct write_item {
-    uint64_t seq;
-    ceph::buffer::list bl;
-    uint32_t orig_len;
-    TrackedOpRef tracked_op;
+    uint64_t seq;           //日志的序号
+    ceph::buffer::list bl;  //日志的内容
+    uint32_t orig_len;      //日志的原始长度
+    TrackedOpRef tracked_op; //操作的跟踪记录
     ZTracer::Trace trace;
     write_item(uint64_t s, ceph::buffer::list& b, int ol, TrackedOpRef opref) :
       seq(s), orig_len(ol), tracked_op(opref) {
@@ -74,8 +74,13 @@ public:
   uint64_t journaled_seq;
   bool plug_journal_completions;
 
+  //writeq相关的锁
   ceph::mutex writeq_lock = ceph::make_mutex("FileJournal::writeq_lock");
+
+  //writeq相关的条件变量
   ceph::condition_variable writeq_cond;
+
+  //保存write_item的队列
   std::list<write_item> writeq;
   bool writeq_empty();
   write_item &peek_write();
@@ -111,10 +116,21 @@ public:
 
   int prepare_entry(std::vector<ObjectStore::Transaction>& tls, ceph::buffer::list* tbl) override;
 
+  // 提交日志
   void submit_entry(uint64_t seq, ceph::buffer::list& bl, uint32_t orig_len,
 		    Context *oncommit,
 		    TrackedOpRef osd_op = TrackedOpRef()) override;
   /// End protected by finisher_lock
+
+/*
+日志的格式如下：
+    entry_header_t  +  journal data  +  entry_header_t
+每条日志数据的头部和尾部都添加了entry_header_t结构。此外，日志在每次同步完成的
+时候设置must_write_header为true时会强制插入一个日志头header_t的结构，用于
+持久化存储header中变化了的字段。
+
+*/
+
 
   /*
    * journal header
@@ -129,8 +145,14 @@ public:
     uuid_d fsid;
     __u32 block_size;
     __u32 alignment;
+
+    //日志的最大size
     int64_t max_size;   // max size of journal ring buffer
+
+     //offset of first entry日志条目的起始地址
     int64_t start;      // offset of first entry
+
+    //已经提交的日志的seq，等同于journaled_seq
     uint64_t committed_up_to; // committed up to
 
     /**
@@ -147,6 +169,7 @@ public:
      * if start_seq > committed_up_to because the entry would have
      * a sequence >= start_seq and therefore > committed_up_to.
      */
+     //等同于日志的起始，last_commited_seq + 1
     uint64_t start_seq;
 
     header_t() :

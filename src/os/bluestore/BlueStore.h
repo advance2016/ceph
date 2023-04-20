@@ -63,7 +63,17 @@ class SimpleBitmap;
 //#define DEBUG_CACHE
 //#define DEBUG_DEFERRED
 
-
+/*
+Collection：PG在内存的数据结构。
+bluestore_cnode_t：PG在磁盘的数据结构。
+Onode：对象在内存的数据结构。
+bluestore_onode_t：对象在磁盘的数据结构。
+Extent：一段对象逻辑空间(lextent)。
+extent_map_t：一个对象包含多段逻辑空间。
+bluestore_pextent_t：一段连续磁盘物理空间。
+bluestore_blob_t一片不一定连续的磁盘物理空间，包含多段pextent。
+Blob：包含一个bluestore_blob_t、引用计数、共享blob等信息。
+*/
 
 // constants for Buffer::optimize()
 #define MAX_BUFFER_SLOP_RATIO_DEN  8  // so actually 1/N
@@ -243,6 +253,10 @@ public:
   struct Collection;
   typedef boost::intrusive_ptr<Collection> CollectionRef;
 
+    /*
+    BlueStore支持BufferIO也支持Libaio，通常默认使用Libaio，为simple-write和
+    deferred-write抽象了基类AioContext，当IO完成时调用回调函数aio_finish。
+    */
   struct AioContext {
     virtual void aio_finish(BlueStore *store) = 0;
     virtual ~AioContext() {}
@@ -587,6 +601,7 @@ public:
 //#define CACHE_BLOB_BL  // not sure if this is a win yet or not... :/
 
   /// in-memory blob metadata and associated cached buffers (if any)
+  // Blob包含磁盘上物理段的集合，即bluestore_pextent_t的集合。
   struct Blob {
     MEMPOOL_CLASS_HELPERS();
 
@@ -761,11 +776,22 @@ public:
 
   /// a logical extent, pointing to (some portion of) a blob
   typedef boost::intrusive::set_base_hook<boost::intrusive::optimize_size<true> > ExtentBase; //making an alias to avoid build warnings
+
+  /*
+  Extent是对象内的基本数据管理单元，数据压缩、数据校验、数据共享等功能都是基于Extent粒度实现的。
+  这里的Extent是对象内的，并不是磁盘内的，所以我们称为lextent，和磁盘内的pextent以示区分。
+  */
   struct Extent : public ExtentBase {
     MEMPOOL_CLASS_HELPERS();
 
+    // 对象内逻辑偏移，不需要块对齐。
     uint32_t logical_offset = 0;      ///< logical offset
+
+    // 当logical_offset是块对齐时，blob_offset始终为0；
+    // 不是块对齐时，将逻辑段内的数据通过Blob映射到磁盘物理段会产生物理段内的偏移称为blob_offset。
     uint32_t blob_offset = 0;         ///< blob offset
+
+    // 逻辑段长度，不需要块对齐。
     uint32_t length = 0;              ///< length
     BlobRef  blob;                    ///< the blob with our data
 
@@ -782,7 +808,7 @@ public:
     }
     ~Extent() {
       if (blob) {
-	blob->shared_blob->get_cache()->rm_extent();
+        blob->shared_blob->get_cache()->rm_extent();
       }
     }
 
@@ -853,6 +879,7 @@ public:
   struct Onode;
 
   /// a sharded extent map, mapping offsets to lextents to blobs
+  // 一个ExtentMap中包含多个Extent, 是通过decode_some这个函数进行解码的
   struct ExtentMap {
     Onode *onode;
     extent_map_t extent_map;        ///< map of Extents to Blobs
@@ -1170,11 +1197,31 @@ public:
   struct OnodeSpace;
   struct OnodeCacheShard;
   /// an in-memory object
+  // 即对象内存管理结构，无法将所有Onode常驻内存，结合淘汰算法进行缓存
+  /* 
+  每个Onode包含一张extent-map，extent-map包含多个extent(lextent)，每个extent负责
+  管理对象内的一个逻辑段数据并且关联一个Blob，Blob包含多个pextent，最终将对象的
+  数据映射到磁盘上
+
+  数据结构主要包含两部分：内存数据结构、磁盘数据结构。
+  
+  Onode本身和FileStore的对象一样，主要包含四部分：数据、扩展属性、omap头部、omap条目。
+  
+  omap和扩展属性很类似，只不过扩展属性大小有限制，omap没有限制。BlueStore把扩展属性和Onode一起保存，omap分开保存。
+
+
+  其实就是管理对象的元数据: 在bluestore里，已经没有传统的文件系统，而是自己
+  管理裸盘，因此需要有元数据来管理对象，对应的就是Onode，Onode是常驻内存的数据
+  结构，持久化的时候会以kv的形式存到rocksdb里。
+  */
+ 
   struct Onode {
     MEMPOOL_CLASS_HELPERS();
 
     std::atomic_int nref = 0;      ///< reference count
     std::atomic_int pin_nref = 0;  ///< reference count replica to track pinning
+
+    // onode 对应的PG
     Collection *c;
     ghobject_t oid;
 
@@ -1183,11 +1230,22 @@ public:
 
     boost::intrusive::list_member_hook<> lru_item;
 
+    // onode磁盘数据结构
     bluestore_onode_t onode;  ///< metadata stored as value in kv store
     bool exists;              ///< true if object logically exists
     bool cached;              ///< Onode is logically in the cache
                               /// (it can be pinned and hence physically out
                               /// of it at the moment though)
+
+    // 有序的Extent逻辑空间集合，持久化在RocksDB。lexetnt--->blob
+    //
+    // 由于支持稀疏写，所以extent map中的extent可以是不连续的，即存在空洞。
+    // 也即前一个extent的结束地址小于后一个extent的起始地址。
+    //
+    // 如果单个对象内的extent过多(小块随机写多、磁盘碎片化严重)
+    // 那么ExtentMap会很大，严重影响RocksDB的访问效率
+    // 所以需要对ExtentMap分片即shard_info，同时也会合并相邻的小段。
+    // 好处可以按需加载，减少内存占用量等。
     ExtentMap extent_map;
 
     // track txc's that have not been committed to kv store (and whose
@@ -1491,6 +1549,13 @@ private:
   class OpSequencer;
   using OpSequencerRef = ceph::ref_t<OpSequencer>;
 
+  // 即PG在BlueStore内存管理结构，Collection数量有限常驻内存
+  /*
+  Collection的概念对应到本地文件系统中就是一个目录，用于存储一个PG里的所有的对象。
+  
+  一个collection对应本地文件系统的一个目录，一个PG对应于一个Collection，该PG的所有对象都保存在这个目录里，定义在类coll_t中：
+
+  */
   struct Collection : public CollectionImpl {
     BlueStore *store;
     OpSequencerRef osr;
@@ -1686,11 +1751,20 @@ private:
     }
   };
 
+  /*
+  simple-write对应的上下文是TransContext，包含对齐覆盖写(COW)和非覆盖写，通常在
+  事物state_prepare阶段将IO分为大小写的时候就已经调用aio_write提交到Libaio队列了，
+  后续会通过_aio_thread线程收割完成的AIO事件。
+  
+  AioContext派生了两种context，TransContext和DeferredBatch，前者对应simple write，
+  简称为txc，后者对应deferred write，简称为dbh。创建块设备的时候，会设置好回调
+  函数，由块设备的aio thread线程执行回调
+  */
   struct TransContext final : public AioContext {
     MEMPOOL_CLASS_HELPERS();
 
     typedef enum {
-      STATE_PREPARE,
+      STATE_PREPARE,  //初始化状态
       STATE_AIO_WAIT,
       STATE_IO_DONE,
       STATE_KV_QUEUED,     // queued for kv_sync_thread submission
@@ -1853,7 +1927,7 @@ private:
 #endif
 
     void aio_finish(BlueStore *store) override {
-      store->txc_aio_finish(this);
+      store->txc_aio_finish(this);  // txc的回调
     }
   private:
     state_t state = STATE_PREPARE;
@@ -1974,6 +2048,7 @@ private:
       boost::intrusive::list_member_hook<>,
       &TransContext::deferred_queue_item> > deferred_queue_t;
 
+  //deferred-write上下文
   struct DeferredBatch final : public AioContext {
     OpSequencer *osr;
     struct deferred_io {
@@ -1998,7 +2073,7 @@ private:
 		       ceph::buffer::list::const_iterator& p);
 
     void aio_finish(BlueStore *store) override {
-      store->_deferred_aio_finish(osr);
+      store->_deferred_aio_finish(osr);  // dbh的回调
     }
   };
 
@@ -2138,6 +2213,13 @@ private:
       boost::intrusive::list_member_hook<>,
       &OpSequencer::deferred_osr_queue_item> > deferred_osr_queue_t;
 
+  /*
+  kv_sync_thread做四件事
+  1. 处理kv_committing（kv_queue），把它的kvdb事务提交了。kvdb层面。
+  2. 处理kv_submitting（kv_queue_unsubmitted）。kv_queue_unsubmitted是状态机中STATE_IO_DONE状态中，发现last_nid>=nid_max或者last_blobid>blob_max的异常，需要更新这两项配置的，因此该次提交不成功，所有事务移交至kv_queue_unsubmitted队列。这里就是更新配置。kvdb层面。
+  3. 处理deferred_done（deferred_done_queue），把它的io给落盘了。bdev层面。
+  4. 处理deferred_stable（deferred_stable_queue），把它对应kvdb中的wal写给删除了，清洗日志数据。kvdb层面。
+  */
   struct KVSyncThread : public Thread {
     BlueStore *store;
     explicit KVSyncThread(BlueStore *s) : store(s) {}
@@ -2146,6 +2228,8 @@ private:
       return NULL;
     }
   };
+
+  //主要是处理kv_sync线程中的队列，返回状态机。
   struct KVFinalizeThread : public Thread {
     BlueStore *store;
     explicit KVFinalizeThread(BlueStore *s) : store(s) {}
@@ -2311,7 +2395,8 @@ private:
   ///< number threshold for forced deferred writes
   std::atomic<int> deferred_batch_ops = {0};
 
-  ///< size threshold for forced deferred writes
+  ///< size threshold for forced deferred(推迟) writes
+  // 当对象大小小于该值时，该对象总是使用延迟写（即先写入 Rocks DB，再落入 BlockDevice）
   std::atomic<uint64_t> prefer_deferred_size = {0};
 
   ///< approx cost per io, in bytes
@@ -2907,6 +2992,7 @@ public:
   int cold_open();
   int cold_close();
 
+  //fsck操作，通常在bluestore格式化或者挂载时使用，可以通过bluestore_fsck_on_umount、bluestore_fsck_on_mkfs配置来开启或关闭
   int fsck(bool deep) override {
     return _fsck(deep ? FSCK_DEEP : FSCK_REGULAR, false);
   }

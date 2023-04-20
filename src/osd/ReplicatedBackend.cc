@@ -462,6 +462,8 @@ void generate_transaction(
     });
 }
 
+//用于最终调用网络接口，把更新请求发送给从OSD，并调用queue_transactions 函数
+//对该PG的主OSD上的实现更改。
 void ReplicatedBackend::submit_transaction(
   const hobject_t &soid,
   const object_stat_sum_t &delta_stats,
@@ -515,6 +517,7 @@ void ReplicatedBackend::submit_transaction(
     parent->get_acting_recovery_backfill_shards().begin(),
     parent->get_acting_recovery_backfill_shards().end());
 
+  //调用该函数，把请求发送出去，发送到从OSD
   issue_op(
     soid,
     at_version,
@@ -548,6 +551,8 @@ void ReplicatedBackend::submit_transaction(
   vector<ObjectStore::Transaction> tls;
   tls.push_back(std::move(op_t));
 
+  //调用该函数完成最后的操作，对该PG的主OSD上的本地对象完成操作, 会调用到os层。
+  //调用的函数位于 PrinaryLogPG.h, 其中 osd->store 定义为ObjectStore *store;
   parent->queue_transactions(tls, op.op);
   if (at_version != eversion_t()) {
     parent->op_applied(at_version);

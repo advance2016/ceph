@@ -99,11 +99,10 @@ public:
   void enqueue(OpSchedulerItem &&item) final {
     unsigned priority = item.get_priority();
     unsigned cost = item.get_cost();
-
+    //根据当前操作调度器的cutoff值来判断是否需要进行严格的优先级调度
     if (priority >= cutoff)
-      queue.enqueue_strict(
-	item.get_owner(), priority, std::move(item));
-    else
+      queue.enqueue_strict(	item.get_owner(), priority, std::move(item));
+    else //加入到操作调度器的普通队列中。
       queue.enqueue(
 	item.get_owner(), priority, cost, std::move(item));
   }

@@ -50,6 +50,10 @@ typedef std::shared_ptr<const OSDMap> OSDMapRef;
   * 3) Handling object access
   * 4) Handling scrub, deep-scrub, repair
   */
+/*
+主要功能是将请求数据通过事务的形式同步到一个PG的其它从OSD上（注意：主OSD的操作PrimaryLogPG来完成）。
+他有两个子类，分别是 ReplicatedBackend和ECBackend，对应着PG的的两种类型的实现。
+*/
  class PGBackend {
  public:
    CephContext* cct;

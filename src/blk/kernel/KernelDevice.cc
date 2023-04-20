@@ -127,6 +127,15 @@ int KernelDevice::_lock()
   }
 }
 
+/*
+KernelDevice 支持同步、异步读写操作，具体实现方式：
+在 open操作时，对同一个设备首先创建两种文件描述符fd_direct、fd_buffered
+（通过O_DIRECT，O_DIRECT不同打开权限来实现），同时告知内核fd_buffered的数据以
+随机形式访问。后续顺序读写操作统一用 fd_direct，随机读写使用 fd_buffered；
+同步读写操作调用系统函数pwrite()和pread()，异步读写操作使用aio_t::preadv()和pwritev()。
+open 块设备的同时也会开启 aio_thread 和 discard_thread。
+
+*/
 int KernelDevice::open(const string& p)
 {
   path = p;
@@ -244,7 +253,7 @@ int KernelDevice::open(const string& p)
       int64_t s;
       r = blkdev_direct.get_size(&s);
       if (r < 0) {
-	goto out_fail;
+        goto out_fail;
       }
       size = s;
     } else {
@@ -583,6 +592,13 @@ static bool is_expected_ioerr(const int r)
 	  );
 }
 
+/*
+作用
+1. 感知已经完成的 io。
+2. 唤醒等待的 io 或者调用回调函数。具体根据IOContext创建时是否提供了 priv 
+参数（BlueStore 指针）来决定使用哪种操作，如果提供了，则调用回调函数
+BlueStore::TransContext::aio_finish()或者BlueStore::DeferredBatch::aio_finish()（根据AioContext 类型）。
+*/
 void KernelDevice::_aio_thread()
 {
   dout(10) << __func__ << " start" << dendl;
@@ -703,6 +719,14 @@ void KernelDevice::_aio_thread()
   }
   dout(10) << __func__ << " end" << dendl;
 }
+
+/*
+discard_thread：这是针对 SSD discard 操作的线程，可以通过 cat /sys/block/sda/queue/discard_granularity 命令
+查看设备是否支持 discard 操作。discard 在 bluestore 中 分为两步：
+第一步：BlkDev{fd_directs[WRITE_LIFE_NOT_SET]}.discard((int64_t) offset, (int64_t) len); 
+调用系统函数对指定位置做 discard。
+第二步：discard_callback() 回调 shared_alloc.a->release()，告诉 Allocater 需要回收的部分（标记为 free）。
+*/
 
 void KernelDevice::_discard_thread()
 {

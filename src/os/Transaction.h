@@ -103,6 +103,15 @@ void decode_str_set_to_bl(ceph::buffer::list::const_iterator& p, ceph::buffer::l
  * A and B.
  *
  */
+ /*
+这里给出osd、collection、transaction等的关系：
+
+osd作为rados存储层面的基石，实际上可以由三种块设备组合而成（data、wal、slow）。
+pg则是pool用来划分对象到不同osd上的工具，一个osd上有多个pg，这些pg可以来自不同的
+或相同的pool。在bluestore 中，用collection来表示pg，每次在向osd做io操作时，需要
+提供对象的归属pg（CollectionHandle）以及至少一个Transaction，而每一个Transaction
+中可以有多个io操作（op_bl）。
+*/
 namespace ceph::os {
 class Transaction {
 public:
@@ -117,14 +126,14 @@ public:
     OP_SETATTR =      14,  // cid, oid, attrname, bl
     OP_SETATTRS =     15,  // cid, oid, attrset
     OP_RMATTR =       16,  // cid, oid, attrname
-    OP_CLONE =        17,  // cid, oid, newoid
-    OP_CLONERANGE =   18,  // cid, oid, newoid, offset, len
+    OP_CLONE =        17,  // cid, oid, newoid 克隆obj
+    OP_CLONERANGE =   18,  // cid, oid, newoid, offset, len 克隆一个obj的指定范围内容到另一个obj中
     OP_CLONERANGE2 =  30,  // cid, oid, newoid, srcoff, len, dstoff
 
     OP_TRIMCACHE =    19,  // cid, oid, offset, len  **DEPRECATED**
 
-    OP_MKCOLL =       20,  // cid
-    OP_RMCOLL =       21,  // cid
+    OP_MKCOLL =       20,  // cid 创建一个collection。
+    OP_RMCOLL =       21,  // cid 删除指定collection，必须保证collection为空（没有对象）
     OP_COLL_ADD =     22,  // cid, oldcid, oid
     OP_COLL_REMOVE =  23,  // cid, oid
     OP_COLL_SETATTR = 24,  // cid, attrname, bl
@@ -135,24 +144,24 @@ public:
     OP_RMATTRS =      28,  // cid, oid
     OP_COLL_RENAME =       29,  // cid, newcid
 
-    OP_OMAP_CLEAR = 31,   // cid
-    OP_OMAP_SETKEYS = 32, // cid, attrset
-    OP_OMAP_RMKEYS = 33,  // cid, keyset
-    OP_OMAP_SETHEADER = 34, // cid, header
-    OP_SPLIT_COLLECTION = 35, // cid, bits, destination
-    OP_SPLIT_COLLECTION2 = 36, /* cid, bits, destination
+    OP_OMAP_CLEAR = 31,   // cid  清空指定obj所有map属性
+    OP_OMAP_SETKEYS = 32, // cid, attrset 设置指定obj的omap key
+    OP_OMAP_RMKEYS = 33,  // cid, keyset 删除omap 指定key属性
+    OP_OMAP_SETHEADER = 34, // cid, header 设置header omap 的属性
+    OP_SPLIT_COLLECTION = 35, // cid, bits, destination 
+    OP_SPLIT_COLLECTION2 = 36, /* 分裂集合，用于增加pg数量。pg总数必须为2的倍数，用于保证分裂操作能够作用到每个pg上。 cid, bits, destination
 				    doesn't create the destination */
     OP_OMAP_RMKEYRANGE = 37,  // cid, oid, firstkey, lastkey
     OP_COLL_MOVE_RENAME = 38,   // oldcid, oldoid, newcid, newoid
 
     OP_SETALLOCHINT = 39,  // cid, oid, object_size, write_size
-    OP_COLL_HINT = 40, // cid, type, bl
+    OP_COLL_HINT = 40, // cid, type, bl 给予collection一个hint
 
-    OP_TRY_RENAME = 41,   // oldcid, oldoid, newoid
+    OP_TRY_RENAME = 41,   // oldcid, oldoid, newoid 把一个对象转移到同一个集合的不同对象中。
 
     OP_COLL_SET_BITS = 42, // cid, bits
 
-    OP_MERGE_COLLECTION = 43, // cid, destination
+    OP_MERGE_COLLECTION = 43, // cid, destination 合并集合，用于减少pg数量。
   };
 
   // Transaction hint type
@@ -178,11 +187,13 @@ public:
   } __attribute__ ((packed)) ;
 
   struct TransactionData {
-    ceph_le64 ops;
-    ceph_le32 largest_data_len;
-    ceph_le32 largest_data_off;
-    ceph_le32 largest_data_off_in_data_bl;
-    ceph_le32 fadvise_flags;
+    ceph_le64 ops;  //本事务中操作数目
+    
+    //以下记录了事务中的带的数据最大的操作的：
+    ceph_le32 largest_data_len;  //最大的数据长度
+    ceph_le32 largest_data_off;  //在对象中的偏移
+    ceph_le32 largest_data_off_in_data_bl;  //在tbl中的偏移
+    ceph_le32 fadvise_flags;  //一些标志
 
     TransactionData() noexcept :
       ops(0),
@@ -230,19 +241,34 @@ public:
   } __attribute__ ((packed)) ;
 
 private:
+  //保存transaction的一些关键参数，如ops（操作数量）largest_data_len（最大数据长度）等
   TransactionData data;
 
+  /*
+  coll_t索引。这是每个transaction单独保存的一份用过或者即将使用的collection集合。
+  通过bluestore中coll_map<coll_t, collection>可以查到对应collection。Op.oid即是
+  此索引中的value，这样可以通过两次查询，找到oid对应的collection。
+  */
   std::map<coll_t, uint32_t> coll_index;
+
+  //ghobject索引。Op.oid即此索引value。
   std::map<ghobject_t, uint32_t> object_index;
 
+  //分别是两个对应索引中键值对数量。
   uint32_t coll_id = 0;
   uint32_t object_id = 0;
 
+  //写入的数据。注：如何确定某个op的data在data_bl中的位置？
   ceph::buffer::list data_bl;
+
+  //Op集合
   ceph::buffer::list op_bl;
 
+  //异步，事务完成之后调用的回调函数，在Finisher线程中调用
   std::list<Context *> on_applied;
   std::list<Context *> on_commit;
+
+  //同步，事务应用完成之后调用的回调函数，由bluestore线程调用
   std::list<Context *> on_applied_sync;
 
 public:
@@ -327,19 +353,19 @@ public:
     Context **out_on_applied,
     Context **out_on_commit,
     Context **out_on_applied_sync) {
-    ceph_assert(out_on_applied);
-    ceph_assert(out_on_commit);
-    ceph_assert(out_on_applied_sync);
-    std::list<Context *> on_applied, on_commit, on_applied_sync;
-    for (auto& i : t) {
-	on_applied.splice(on_applied.end(), i.on_applied);
-	on_commit.splice(on_commit.end(), i.on_commit);
-	on_applied_sync.splice(on_applied_sync.end(), i.on_applied_sync);
+        ceph_assert(out_on_applied);
+        ceph_assert(out_on_commit);
+        ceph_assert(out_on_applied_sync);
+        std::list<Context *> on_applied, on_commit, on_applied_sync;
+        for (auto& i : t) {
+            on_applied.splice(on_applied.end(), i.on_applied);
+            on_commit.splice(on_commit.end(), i.on_commit);
+            on_applied_sync.splice(on_applied_sync.end(), i.on_applied_sync);
+        }
+        *out_on_applied = C_Contexts::list_to_context(on_applied);
+        *out_on_commit = C_Contexts::list_to_context(on_commit);
+        *out_on_applied_sync = C_Contexts::list_to_context(on_applied_sync);
     }
-    *out_on_applied = C_Contexts::list_to_context(on_applied);
-    *out_on_commit = C_Contexts::list_to_context(on_commit);
-    *out_on_applied_sync = C_Contexts::list_to_context(on_applied_sync);
-  }
   static void collect_contexts(
     std::vector<Transaction>& t,
     std::list<Context*> *out_on_applied,
@@ -349,10 +375,9 @@ public:
     ceph_assert(out_on_commit);
     ceph_assert(out_on_applied_sync);
     for (auto& i : t) {
-	out_on_applied->splice(out_on_applied->end(), i.on_applied);
-	out_on_commit->splice(out_on_commit->end(), i.on_commit);
-	out_on_applied_sync->splice(out_on_applied_sync->end(),
-				    i.on_applied_sync);
+        out_on_applied->splice(out_on_applied->end(), i.on_applied);
+        out_on_commit->splice(out_on_commit->end(), i.on_commit);
+        out_on_applied_sync->splice(out_on_applied_sync->end(), i.on_applied_sync);
     }
   }
   static Context *collect_all_contexts(
@@ -838,26 +863,33 @@ public:
    *
    * Note that a 0-length write does not affect the size of the object.
    */
+    //cid 操作对象所在目录，在内存中的结构对象
+    //oid 操作对象
+    //off 操作对象中的偏移位置
+    //len 要写入的数据长度
+    //write_data 要写入的数
+
   void write(const coll_t& cid, const ghobject_t& oid, uint64_t off, uint64_t len,
 	       const ceph::buffer::list& write_data, uint32_t flags = 0) {
     using ceph::encode;
     uint32_t orig_len = data_bl.length();
-    Op* _op = _get_next_op();
-    _op->op = OP_WRITE;
-    _op->cid = _get_coll_id(cid);
-    _op->oid = _get_object_id(oid);
-    _op->off = off;
-    _op->len = len;
-    encode(write_data, data_bl);
+    Op* _op = _get_next_op();   //申请一个op对象，该对象内存空间在op_bl中，初始化该op。
+    _op->op = OP_WRITE;         // 写入操作
+    _op->cid = _get_coll_id(cid);  //cid（coll_t）对应的id
+    _op->oid = _get_object_id(oid);  //oid(ghobject)对应的id
+    _op->off = off;                  //写入对象中的偏移位置
+    _op->len = len;                 //写入数据的长度
+    encode(write_data, data_bl);   //把要写入的数据保存到data_bl中。
+                                   //判断当前op操作的数据体是不是最大的，若是，则更新data相应数据
 
     ceph_assert(len == write_data.length());
     data.fadvise_flags = data.fadvise_flags | flags;
     if (write_data.length() > data.largest_data_len) {
-	data.largest_data_len = write_data.length();
-	data.largest_data_off = off;
-	data.largest_data_off_in_data_bl = orig_len + sizeof(__u32);  // we are about to
+        data.largest_data_len = write_data.length();
+        data.largest_data_off = off;
+        data.largest_data_off_in_data_bl = orig_len + sizeof(__u32);  // we are about to
     }
-    data.ops = data.ops + 1;
+    data.ops = data.ops + 1;      //增加op的计数。
   }
   /**
    * zero out the indicated byte range within an object. Some

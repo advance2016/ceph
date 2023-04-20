@@ -1951,16 +1951,16 @@ int Client::make_request(MetaRequest *request,
     int mds_state = (mds == MDS_RANK_NONE) ? MDSMap::STATE_NULL : mdsmap->get_state(mds);
     if (mds_state != MDSMap::STATE_ACTIVE && mds_state != MDSMap::STATE_STOPPING) {
       if (mds_state == MDSMap::STATE_NULL && mds >= mdsmap->get_max_mds()) {
-	if (hash_diri) {
-	  ldout(cct, 10) << " target mds." << mds << " has stopped, remove it from fragmap" << dendl;
-	  _fragmap_remove_stopped_mds(hash_diri, mds);
-	} else {
-	  ldout(cct, 10) << " target mds." << mds << " has stopped, trying a random mds" << dendl;
-	  request->resend_mds = _get_random_up_mds();
-	}
+    	if (hash_diri) {
+    	  ldout(cct, 10) << " target mds." << mds << " has stopped, remove it from fragmap" << dendl;
+    	  _fragmap_remove_stopped_mds(hash_diri, mds);
+    	} else {
+    	  ldout(cct, 10) << " target mds." << mds << " has stopped, trying a random mds" << dendl;
+    	  request->resend_mds = _get_random_up_mds();
+    	}
       } else {
-	ldout(cct, 10) << " target mds." << mds << " not active, waiting for new mdsmap" << dendl;
-	wait_on_list(waiting_for_mdsmap);
+    	ldout(cct, 10) << " target mds." << mds << " not active, waiting for new mdsmap" << dendl;
+    	wait_on_list(waiting_for_mdsmap);
       }
       continue;
     }
@@ -1969,18 +1969,18 @@ int Client::make_request(MetaRequest *request,
     if (!have_open_session(mds)) {
       session = _get_or_open_mds_session(mds);
       if (session->state == MetaSession::STATE_REJECTED) {
-	request->abort(-CEPHFS_EPERM);
-	break;
+    	request->abort(-CEPHFS_EPERM);
+    	break;
       }
       // wait
       if (session->state == MetaSession::STATE_OPENING) {
-	ldout(cct, 10) << "waiting for session to mds." << mds << " to open" << dendl;
-	wait_on_context_list(session->waiting_for_open);
-	continue;
+    	ldout(cct, 10) << "waiting for session to mds." << mds << " to open" << dendl;
+    	wait_on_context_list(session->waiting_for_open);
+    	continue;
       }
 
       if (!have_open_session(mds))
-	continue;
+        continue;
     } else {
       session = mds_sessions.at(mds);
     }
@@ -3566,6 +3566,7 @@ int Client::get_caps(Fh *fh, int need, int want, int *phave, loff_t endoff)
 {
   Inode *in = fh->inode.get();
 
+  //首先判断是否有操作pool的权限
   int r = check_pool_perm(in, need);
   if (r < 0)
     return r;
@@ -3853,6 +3854,14 @@ static int adjust_caps_used_for_lazyio(int used, int issued, int implemented)
  *
  * @param in the inode to check
  * @param flags flags to apply to cap check
+
+总结了下有三种情况需要更新caps：
+
+1，客户端想要的cap，mds没给；
+
+2，mds需要回收的cap，客户端没给；
+
+3，需要更新in->max_size
  */
 void Client::check_caps(Inode *in, unsigned flags)
 {
@@ -10646,6 +10655,7 @@ int Client::_preadv_pwritev(int fd, const struct iovec *iov, unsigned iovcnt, in
     return _preadv_pwritev_locked(fh, iov, iovcnt, offset, write, true);
 }
 
+//简单分为两个重要部分：get_caps和file_write部分
 int64_t Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf,
 	                const struct iovec *iov, int iovcnt)
 {
@@ -10730,6 +10740,13 @@ int64_t Client::_write(Fh *f, int64_t offset, uint64_t size, const char *buf,
     want = CEPH_CAP_FILE_BUFFER | CEPH_CAP_FILE_LAZYIO;
   else
     want = CEPH_CAP_FILE_BUFFER;
+  /*
+  get_caps的入参need是"AsFw", want是"Fb"。need表示需要的cap，而want表示想要的cap
+  ，在get_caps中跟revoke有关。need和want最关键的区别是：如果mds赋予客户端的caps
+  中不包含need，那就无法往下写。Fw就是写的能力，而As，是因为需要获取本地缓存的
+  Inode的mode值，需要判断(S_ISUID|S_ISGID)；want在caps中可有可无，不耽误写，只
+  与写的方式有关。
+  */
   int r = get_caps(f, CEPH_CAP_FILE_WR|CEPH_CAP_AUTH_SHARED, want, &have, endoff);
   if (r < 0)
     return r;
@@ -13694,6 +13711,8 @@ int Client::_mkdir(Inode *dir, const char *name, mode_t mode, const UserPerm& pe
   if (dir->snapid != CEPH_NOSNAP && dir->snapid != CEPH_SNAPDIR) {
     return -CEPHFS_EROFS;
   }
+
+  // 检查文件数量配额
   if (is_quota_files_exceeded(dir, perm)) {
     return -CEPHFS_EDQUOT;
   }
@@ -13713,6 +13732,8 @@ int Client::_mkdir(Inode *dir, const char *name, mode_t mode, const UserPerm& pe
 
   mode |= S_IFDIR;
   bufferlist bl;
+
+  // 创建acl
   int res = _posix_acl_create(dir, &mode, bl, perm);
   if (res < 0)
     goto fail;
@@ -13731,15 +13752,19 @@ int Client::_mkdir(Inode *dir, const char *name, mode_t mode, const UserPerm& pe
   }
 
   Dentry *de;
+  // 创建新建目录的dentry
   res = get_or_create(dir, name, &de);
   if (res < 0)
     goto fail;
   req->set_dentry(de);
   
   ldout(cct, 10) << "_mkdir: making request" << dendl;
+
+  // 发送请求给mds执行创建目录操作，应该是同步请求
   res = make_request(req, perm, inp);
   ldout(cct, 10) << "_mkdir result is " << res << dendl;
 
+  // 清理lru缓存中的dentry
   trim_cache();
 
   ldout(cct, 8) << "_mkdir(" << path << ", 0" << oct << mode << dec << ") = " << res << dendl;
@@ -13776,6 +13801,7 @@ int Client::ll_mkdir(Inode *parent, const char *name, mode_t mode,
   InodeRef in;
   int r = _mkdir(parent, name, mode, perm, &in);
   if (r == 0) {
+  // 填充stat信息，增加inode引用计数
     fill_stat(in, attr);
     _ll_get(in.get());
   }
@@ -14818,6 +14844,7 @@ int Client::ll_commit_blocks(Inode *in,
     return 0;
 }
 
+
 int Client::ll_write(Fh *fh, loff_t off, loff_t len, const char *data)
 {
   ldout(cct, 3) << "ll_write " << fh << " " << fh->inode->ino << " " << off <<
@@ -15681,6 +15708,7 @@ int Client::check_pool_perm(Inode *in, int need)
   std::pair<int64_t, std::string> perm_key(pool_id, pool_ns);
   int have = 0;
   while (true) {
+    // 看pool_perms中是否有该pool的key
     auto it = pool_perms.find(perm_key);
     if (it == pool_perms.end())
       break;
@@ -15725,12 +15753,16 @@ int Client::check_pool_perm(Inode *in, int need)
 		     nullsnapc, ceph::real_clock::now(), 0, &wr_cond);
 
     client_lock.unlock();
+    // 等待stat回复
     int rd_ret = rd_cond.wait();
+
+    // 等待create回复
     int wr_ret = wr_cond.wait();
     client_lock.lock();
 
     bool errored = false;
 
+    // 如果返回0或-ENOENT，则表示有READ权限
     if (rd_ret == 0 || rd_ret == -CEPHFS_ENOENT)
       have |= POOL_READ;
     else if (rd_ret != -CEPHFS_EPERM) {
@@ -15751,11 +15783,13 @@ int Client::check_pool_perm(Inode *in, int need)
       // Indeterminate: erase CHECKING state so that subsequent calls re-check.
       // Raise EIO because actual error code might be misleading for
       // userspace filesystem user.
+      // 唤醒waiting_for_pool_perm
       pool_perms.erase(perm_key);
       signal_cond_list(waiting_for_pool_perm);
       return -CEPHFS_EIO;
     }
 
+    // 置上POOL_CHECKED标志   
     pool_perms[perm_key] = have | POOL_CHECKED;
     signal_cond_list(waiting_for_pool_perm);
   }

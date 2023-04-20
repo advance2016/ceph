@@ -94,6 +94,8 @@ struct bluestore_interval_t
 };
 
 /// pextent: physical extent
+// 每段pextent对应一段连续的磁盘物理空间，结构体为bluestore_pextent_t。
+// pextent的offset和length都是块大小对齐的。
 struct bluestore_pextent_t : public bluestore_interval_t<uint64_t, uint32_t> 
 {
   bluestore_pextent_t() {}
@@ -434,9 +436,9 @@ std::ostream& operator<<(std::ostream& out, const bluestore_blob_use_tracker_t& 
 /// blob: a piece of data on disk
 struct bluestore_blob_t {
 private:
-  PExtentVector extents;              ///< raw data position on device
+  PExtentVector extents;              ///< raw data position on device 对应物理设备上的原始数据
   uint32_t logical_length = 0;        ///< original length of data stored in the blob
-  uint32_t compressed_length = 0;     ///< compressed length if any
+  uint32_t compressed_length = 0;     ///< compressed length if any 数据压缩后的长度
 
 public:
   enum {
@@ -941,9 +943,14 @@ std::ostream& operator<<(std::ostream& out, const bluestore_shared_blob_t& o);
 
 /// onode: per-object metadata
 struct bluestore_onode_t {
+  // 逻辑ID，单个BlueStore内部唯一。
   uint64_t nid = 0;                    ///< numeric id (locally unique)
+
+  // 对象大小
   uint64_t size = 0;                   ///< object size
+  
   // mempool to be assigned to buffer::ptr manually
+  // 对象扩展属性
   std::map<mempool::bluestore_cache_meta::string, ceph::buffer::ptr> attrs;
 
   struct shard_info {

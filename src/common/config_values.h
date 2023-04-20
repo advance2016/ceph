@@ -26,6 +26,8 @@ public:
   EntityName name;
   /// cluster name
   std::string cluster;
+  
+  //subsys用来存日志项
   ceph::logging::SubsystemMap subsys;
   bool no_mon_config = false;
   // Set of configuration options that have changed since the last

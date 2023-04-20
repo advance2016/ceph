@@ -13,14 +13,15 @@
   * we need to know the projected existence, size, snapset,
   * etc., because we don't send writes down to disk until after
   * replicas ack.
+  * 保存了快照的相关信息，即SnapSet的上下文信息。
   */
 
 struct SnapSetContext {
-  hobject_t oid;
-  SnapSet snapset;
-  int ref;
-  bool registered : 1;
-  bool exists : 1;
+  hobject_t oid;   //对象
+  SnapSet snapset;  //SnapSet 对象快照相关的记录
+  int ref;  //本结构的引用计数
+  bool registered : 1;  //是否在SnapSet Cache中记录
+  bool exists : 1; //snapset是否存在
 
   explicit SnapSetContext(const hobject_t& o) :
     oid(o), ref(0), registered(false), exists(true) { }
@@ -28,12 +29,14 @@ struct SnapSetContext {
 struct ObjectContext;
 typedef std::shared_ptr<ObjectContext> ObjectContextRef;
 
+
+//ObjectContext可以说是对象在内存中的一个管理类，保存了一个对象的上下文信息。
 struct ObjectContext {
-  ObjectState obs;
+  ObjectState obs;  //主要是object_info_t，描述了对象的状态信息
 
-  SnapSetContext *ssc;  // may be null
+  SnapSetContext *ssc;  // may be null 快照上下文信息，如果没有快照就为空
 
-  Context *destructor_callback;
+  Context *destructor_callback;  //析构函数的
 
 public:
 
@@ -44,6 +47,8 @@ public:
   std::map<std::string, ceph::buffer::list, std::less<>> attr_cache;
 
   RWState rwstate;
+
+  //等待状态变化的waiters
   std::list<OpRequestRef> waiters;  ///< ops waiting on state change
   bool get_read(OpRequestRef& op) {
     if (rwstate.get_read_lock()) {

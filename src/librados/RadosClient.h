@@ -60,15 +60,15 @@ private:
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
-  } state{DISCONNECTED};
+  } state{DISCONNECTED}; //和Monitor的网络连接状态
 
-  MonClient monclient{cct, poolctx};
+  MonClient monclient{cct, poolctx};  //Monitor客户端
   MgrClient mgrclient{cct, nullptr, &monclient.monmap};
-  Messenger *messenger{nullptr};
+  Messenger *messenger{nullptr};  //网络消息接口
 
-  uint64_t instance_id{0};
+  uint64_t instance_id{0};  //rados客户端实例的id
 
-  bool _dispatch(Message *m);
+  bool _dispatch(Message *m);    //相关消息分发 Dispatcher类的函数重写
   bool ms_dispatch(Message *m) override;
 
   void ms_handle_connect(Connection *con) override;
@@ -76,7 +76,7 @@ private:
   void ms_handle_remote_reset(Connection *con) override;
   bool ms_handle_refused(Connection *con) override;
 
-  Objecter *objecter{nullptr};
+  Objecter *objecter{nullptr};  //osdc模块中的 用于发送封装好的OP消息
 
   ceph::mutex lock = ceph::make_mutex("librados::RadosClient::lock");
   ceph::condition_variable cond;
@@ -128,8 +128,12 @@ public:
 		    bool wait_latest_map = false);
 
   int pool_list(std::list<std::pair<int64_t, std::string> >& ls);
+
+  //用于获取pool的统计信息
   int get_pool_stats(std::list<std::string>& ls, std::map<std::string,::pool_stat_t> *result,
     bool *per_pool);
+
+  //用于获取系统的统计信息。
   int get_fs_stats(ceph_statfs& result);
   bool get_pool_is_selfmanaged_snaps_mode(const std::string& pool);
 

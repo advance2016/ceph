@@ -10,6 +10,10 @@
 #include "compression_onwire.h"
 #include "frames_v2.h"
 
+/*
+ProtocolV2是Ceph异步网络通信机制中的一个重要类，它封装了底层的网络通信协议，提
+供了异步的发送和接收接口，并处理网络连接的建立和断开等事件。
+*/
 class ProtocolV2 : public Protocol {
 private:
   enum State {

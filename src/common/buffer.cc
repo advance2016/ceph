@@ -218,6 +218,7 @@ static ceph::spinlock debug_lock;
 
   /*
    * primitive buffer types
+   * 使用了C++的new操作符来申请内存空间。
    */
   class buffer::raw_char : public buffer::raw {
   public:
@@ -225,9 +226,9 @@ static ceph::spinlock debug_lock;
 
     explicit raw_char(unsigned l) : raw(l) {
       if (len)
-	data = new char[len];
+        data = new char[len];
       else
-	data = 0;
+        data = 0;
       bdout << "raw_char " << this << " alloc " << (void *)data << " " << l << bendl;
     }
     raw_char(unsigned l, char *b) : raw(b, l) {

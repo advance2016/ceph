@@ -119,8 +119,8 @@ void add_partial_sparse_result(
 } // anonymous namespace
 
 void Striper::file_to_extents(CephContext *cct, const char *object_format,
-			      const file_layout_t *layout,
-			      uint64_t offset, uint64_t len,
+			      const file_layout_t *layout,    //分片信息
+			      uint64_t offset, uint64_t len,  //文件的偏移，长度
 			      uint64_t trunc_size,
 			      std::vector<ObjectExtent>& extents,
 			      uint64_t buffer_offset)

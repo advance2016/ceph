@@ -49,6 +49,8 @@ static const int ASYNC_IOV_MAX = (IOV_MAX >= 1024 ? IOV_MAX / 4 : IOV_MAX);
  * will handle with network fault or read/write transactions. If one file
  * descriptor broken, AsyncConnection will maintain the message queue and
  * sequence, try to reconnect peer endpoint.
+ 一个Connection实例对应着一个端对端的连接，AsyncConnection作为Connection的子类，
+ 其中封装了一个连接状态机、上下文以及基于该AsyncConnection的读写方法。
  */
 class AsyncConnection : public Connection {
   ssize_t read(unsigned len, char *buffer,
@@ -173,6 +175,8 @@ public:
   uint64_t conn_id;
   PerfCounters *logger;
   int state;
+  
+  //对应的socket
   ConnectedSocket cs;
   int port;
 public:
@@ -216,7 +220,11 @@ private:
 
   // used only by "read_until"
   uint64_t state_offset;
+
+  //对应的工作者线程
   Worker *worker;
+
+  //对应的事件中心，也就是本Connection的所有的实际都有center处理
   EventCenter *center;
 
   std::unique_ptr<Protocol> protocol;

@@ -26,17 +26,27 @@ class Context;
 
 template <class Mutex> class CommonSafeTimerThread;
 
+//定时器的功能
 template <class Mutex>
 class CommonSafeTimer
 {
   CephContext *cct;
   Mutex& lock;
   std::condition_variable_any cond;
+
+  //是否是safe_callbacks
   bool safe_callbacks;
 
+  //定时器执行线程
   friend class CommonSafeTimerThread<Mutex>;
   class CommonSafeTimerThread<Mutex> *thread;
 
+  /*
+  检查scheduler中的任务是否到期，其循环检查任务是否到期执行。任务在schedule
+  中是按照时间升序排列的。首先检查，如果第一任务没有到时间，后面的任务就不用检
+  查了，直接终止循环。如果第一任务到了定时时间，就调用callback函数执行，如果是
+  safe_callbacks，就必须在获取lock的情况下执行Callback任务。
+  */
   void timer_thread();
   void _shutdown();
 
@@ -80,6 +90,8 @@ public:
    * Call with the event_lock LOCKED */
   Context* add_event_after(ceph::timespan duration, Context *callback);
   Context* add_event_after(double seconds, Context *callback);
+
+  //添加定时任务的命令
   Context* add_event_at(clock_t::time_point when, Context *callback);
   Context* add_event_at(ceph::real_clock::time_point when, Context *callback);
   /* Cancel an event.
@@ -87,6 +99,7 @@ public:
    *
    * Returns true if the callback was cancelled.
    * Returns false if you never added the callback in the first place.
+   * 取消定时任务的命令
    */
   bool cancel_event(Context *callback);
 

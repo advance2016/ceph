@@ -163,11 +163,14 @@ struct error_code;
 
   /*
    * a buffer pointer.  references (a subsequence of) a raw buffer.
+   * 就是对于buffer::raw的一个部分数据段。ptr是raw里的一个任意的数据段
    */
   class CEPH_BUFFER_API ptr {
     friend class list;
   protected:
     raw *_raw;
+
+    // _off是在_raw里的偏移量，_len是ptr的长度
     unsigned _off, _len;
   private:
 
@@ -410,6 +413,7 @@ struct error_code;
   };
   /*
    * list - the useful bit!
+   * 一个使用广泛的类，它是多个buffer::ptr的列表，也就是多个内存数据段的列表。
    */
 
   class CEPH_BUFFER_API list {

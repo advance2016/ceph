@@ -123,6 +123,8 @@ int main(int argc, const char **argv)
     cerr << argv[0] << ": -h or --help for usage" << std::endl;
     exit(1);
   }
+
+  // 显示help信息
   if (ceph_argparse_need_usage(args)) {
     usage();
     exit(0);
@@ -133,12 +135,22 @@ int main(int argc, const char **argv)
     // option, therefore we will pass it as a default argument to global_init().
     { "leveldb_log", "" }
   };
+
+  //初始化全局信息
   auto cct = global_init(
     &defaults,
     args, CEPH_ENTITY_TYPE_OSD,
     CODE_ENVIRONMENT_DAEMON, 0);
+
+  /*
+  初始化堆栈分析器, 启动后即进入内存跟踪模式，注意，启用这个参数后，osd性能会
+  大幅度下降，重启osd将花费更长的时间, 如果设置了CEPH_HEAP_PROFILER_INIT的环境
+  变量后才会启动，且需要google-perftools才能使用.
+  默认情况下是不启动的，后续可以通过ceph tell mds.$name heap start_profiler来启动
+  */
   ceph_heap_profiler_init();
 
+  // 对fork的封装
   Preforker forker;
 
   // osd specific args
@@ -203,6 +215,7 @@ int main(int argc, const char **argv)
     exit(1);
   }
 
+  // fork子进程并等待子进程退出
   if (global_init_prefork(g_ceph_context) >= 0) {
     std::string err;
     int r = forker.prefork(err);
@@ -217,9 +230,15 @@ int main(int argc, const char **argv)
       }
       return 0;
     }
+
+    //将进程和它当前的对话过程和进程组分离开，并且把它设置成一个新的对话过程的领头进程。
     setsid();
+
+    // 为子进程执行global_init
     global_init_postfork_start(g_ceph_context);
   }
+
+  //主要作用是开启 service 线程和 admin_socket 线程
   common_init_finish(g_ceph_context);
   global_init_chdir(g_ceph_context);
 
@@ -526,6 +545,10 @@ flushjournal_out:
     iface_preferred_numa_node = os_numa_node;
   }
 
+  /* 
+  Messenger是网络模块的核心数据结构，负责接收/发送消息。OSD主要有两个Messenger：
+  ms_public处于与客户端的消息，ms_cluster处理与其它OSD的消息。
+  */
   // messengers
   std::string msg_type = g_conf().get_val<std::string>("ms_type");
   std::string public_msg_type =
@@ -536,18 +559,26 @@ flushjournal_out:
   public_msg_type = public_msg_type.empty() ? msg_type : public_msg_type;
   cluster_msg_type = cluster_msg_type.empty() ? msg_type : cluster_msg_type;
   uint64_t nonce = Messenger::get_pid_nonce();
+  // 创建一个 Messenger 对象，由于 Messenger 是抽象类，不能直接实例化，提供了一
+  // 个 ::create 的方法来创建子类
+  // public用于客户端通信
   Messenger *ms_public = Messenger::create(g_ceph_context, public_msg_type,
 					   entity_name_t::OSD(whoami), "client", nonce);
+  //cluster用于集群内部通信
   Messenger *ms_cluster = Messenger::create(g_ceph_context, cluster_msg_type,
 					    entity_name_t::OSD(whoami), "cluster", nonce);
+  // 下面几个是检测心跳的
   Messenger *ms_hb_back_client = Messenger::create(g_ceph_context, cluster_msg_type,
 					     entity_name_t::OSD(whoami), "hb_back_client", nonce);
   Messenger *ms_hb_front_client = Messenger::create(g_ceph_context, public_msg_type,
 					     entity_name_t::OSD(whoami), "hb_front_client", nonce);
+  //用来处理OSD接收心跳消息
   Messenger *ms_hb_back_server = Messenger::create(g_ceph_context, cluster_msg_type,
 						   entity_name_t::OSD(whoami), "hb_back_server", nonce);
+  //用来处理OSD发送心跳消息
   Messenger *ms_hb_front_server = Messenger::create(g_ceph_context, public_msg_type,
 						    entity_name_t::OSD(whoami), "hb_front_server", nonce);
+  //用来处理OSD和Objecter之间的消息
   Messenger *ms_objecter = Messenger::create(g_ceph_context, public_msg_type,
 					     entity_name_t::OSD(whoami), "ms_objecter", nonce);
   if (!ms_public || !ms_cluster || !ms_hb_front_client || !ms_hb_back_client || !ms_hb_back_server || !ms_hb_front_server || !ms_objecter)
@@ -578,6 +609,7 @@ flushjournal_out:
     CEPH_FEATURE_PGID64 |
     CEPH_FEATURE_OSDENC;
 
+  // 设置策略以及限流
   ms_public->set_default_policy(Messenger::Policy::stateless_registered_server(0));
   ms_public->set_policy_throttlers(entity_name_t::TYPE_CLIENT,
 				   client_byte_throttler.get(),
@@ -632,6 +664,17 @@ flushjournal_out:
     derr << "Failed to pick cluster address." << dendl;
     forker.exit(1);
   }
+
+  /* 绑定到固定ip
+   这个ip最终会绑定在Accepter中。然后在Accepter->bind函数中，会对这个ip初始化一个socket，
+  并且保存为listen_sd。接着会启动Accepter->start(),这里会启动Accepter的监听线程，这个线
+  程做的事情放在Accepter->entry()函数中
+  
+  messenger::bindv()  --  messenger::bind()  
+                        --simpleMessenger::bind()
+                              ---- accepter.bind()  
+                                     ----创建socket---- socket bind() --- socket listen()
+  */
 
   if (ms_public->bindv(public_bind_addrs, public_addrs) < 0) {
     derr << "Failed to bind to " << public_bind_addrs << dendl;
@@ -692,6 +735,7 @@ flushjournal_out:
     forker.exit(1);
   }
 
+  //创建dispatcher子类对象
   osdptr = new OSD(g_ceph_context,
 		   std::move(store),
 		   whoami,
@@ -707,6 +751,10 @@ flushjournal_out:
 		   journal_path,
 		   poolctx);
 
+  /*启动OSD，在这个之前有一个pre启动（int err = osd->pre_init()），在这个后面还
+  有一个final启动（osd->final_init();）。执行OSD启动的是osd.cc文件中的init函数，
+  调用Messenger的add_dispatcher_head()函数将响应的消息的分拣器实例（dispatchers）
+  加入到dispatchers的链表中。*/
   int err = osdptr->pre_init();
   if (err < 0) {
     derr << TEXT_RED << " ** ERROR: osd pre_init failed: " << cpp_strerror(-err)
@@ -714,6 +762,7 @@ flushjournal_out:
     forker.exit(1);
   }
 
+  // 启动线程
   ms_public->start();
   ms_hb_front_client->start();
   ms_hb_back_client->start();
@@ -721,6 +770,24 @@ flushjournal_out:
   ms_hb_back_server->start();
   ms_cluster->start();
   ms_objecter->start();
+
+  //初始化 OSD模块
+       /**
+         a). 初始化 OSD 模块
+         b). 通过 SimpleMessenger::add_dispatcher_head() 注册自己到
+          SimpleMessenger::dispatchers 中, 流程如下:
+          Messenger::add_dispatcher_head()
+               --> ready()
+                   --> dispatch_queue.start()(新 DispatchQueue 线程)
+                     --> Accepter::start()(启动start线程)
+                       --> accept
+                          --> SimpleMessenger::add_accept_pipe
+                             --> Pipe::start_reader
+                                 --> Pipe::reader()
+          在 ready() 中: 通过 Messenger::reader(),
+          1) DispatchQueue 线程会被启动，用于缓存收到的消息消息
+          2) Accepter 线程启动，开始监听新的连接请求.
+          */
 
   // start osd
   err = osdptr->init();
@@ -746,6 +813,7 @@ flushjournal_out:
   if (g_conf().get_val<bool>("inject_early_sigterm"))
     kill(getpid(), SIGTERM);
 
+  // 进入 mainloop, 等待退出
   ms_public->wait();
   ms_hb_front_client->wait();
   ms_hb_back_client->wait();

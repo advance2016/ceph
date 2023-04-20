@@ -13,22 +13,29 @@
 #include "include/buffer.h"
 #include "kv/KeyValueDB.h"
 
+/*
+空间管理分为两个部分：FreelistManager和Allocator，后续简称为fm和alloc。
+fm用于表示空闲空间的存储结构以及分配、释放空间的存储数据变更策略，
+它更贴近于空闲空间的物理存储层面；alloc则侧重于内存表示，它着重于空闲空间快
+速查找与标记的时间复杂度，和在内存占用的空间复杂度上寻求平衡。
+*/
 class BitmapFreelistManager : public FreelistManager {
-  std::string meta_prefix, bitmap_prefix;
-  std::shared_ptr<KeyValueDB::MergeOperator> merge_op;
+  std::string meta_prefix, bitmap_prefix; // rocksdb中key的前缀，meta为B，bitmap为b
+  std::shared_ptr<KeyValueDB::MergeOperator> merge_op; // merge操作，实际上就是按位xor
   ceph::mutex lock = ceph::make_mutex("BitmapFreelistManager::lock");
 
-  uint64_t size;            ///< size of device (bytes)
-  uint64_t bytes_per_block; ///< bytes per block (bdev_block_size)
-  uint64_t blocks_per_key;  ///< blocks (bits) per key/value pair
-  uint64_t bytes_per_key;   ///< bytes per key/value pair
-  uint64_t blocks;          ///< size of device (blocks, size rounded up)
+  uint64_t size;            // 1TB < size of device (bytes) 设备的大小        
+  uint64_t bytes_per_block; // 4096 < bytes per block (bdev_block_size) block的大小，对应bdev_block_size,  
+  uint64_t blocks_per_key;  // 128 < blocks (bits) per key/value pair 每个key包含多少个block,  
+  uint64_t bytes_per_key;   // bytes_per_block * blocks_per_key < bytes per key/value pair 每个key对应的空间大小
+  uint64_t blocks;          ///< size of device (blocks, size rounded up) 设备总的block数
 
-  uint64_t block_mask;  ///< mask to convert byte offset to block offset
-  uint64_t key_mask;    ///< mask to convert offset to key offset
+  uint64_t block_mask;  ///< mask to convert byte offset to block offset block掩码
+  uint64_t key_mask;    ///< mask to convert offset to key offset key的掩码
 
   ceph::buffer::list all_set_bl;
 
+  // 遍历rocksdb key相关的成员
   KeyValueDB::Iterator enumerate_p;
   uint64_t enumerate_offset; ///< logical offset; position
   ceph::buffer::list enumerate_bl;   ///< current key at enumerate_offset

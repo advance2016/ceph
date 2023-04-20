@@ -112,6 +112,7 @@ int EventCenter::init(int nevent, unsigned center_id, const std::string &type)
   this->type = type;
   this->center_id = center_id;
 
+  // 新建一个驱动对象
   if (type == "dpdk") {
 #ifdef HAVE_DPDK
     driver = new DPDKDriver(cct);
@@ -133,6 +134,7 @@ int EventCenter::init(int nevent, unsigned center_id, const std::string &type)
     return -1;
   }
 
+  // 初始化具体的驱动
   int r = driver->init(this, nevent);
   if (r < 0) {
     lderr(cct) << __func__ << " failed to init event driver." << dendl;
@@ -147,6 +149,7 @@ int EventCenter::init(int nevent, unsigned center_id, const std::string &type)
 
   int fds[2];
 
+  //创建一个管道，并将管道r/w两个文件描述符赋值给EventCenter中notify_receive_fd和notify_send_fd
   #ifdef _WIN32
   if (win_socketpair(fds) < 0) {
   #else
@@ -196,7 +199,10 @@ EventCenter::~EventCenter()
     delete notify_handler;
 }
 
-
+/*
+将notify_receive_fd加入epoll队列，并且fd和对应的FileEvent都存在file_events中。这
+样的话，如果监听到有事件，获取到fd后，就可以从file_events中拿出回调去处理事件。
+*/
 void EventCenter::set_owner()
 {
   owner = pthread_self();
@@ -340,6 +346,7 @@ void EventCenter::wakeup()
   #ifdef _WIN32
   int n = send(notify_send_fd, &buf, sizeof(buf), 0);
   #else
+  // 往管道中写数据，来唤醒epoll_wait
   int n = write(notify_send_fd, &buf, sizeof(buf));
   #endif
   if (n < 0) {
@@ -377,8 +384,27 @@ int EventCenter::process_time_events()
   return processed;
 }
 
+
+/*
+函数process_event处理相关的事件，其处理流程如下：
+
+1. 如果有外部事件，或者是poller模式，阻塞时间设置为0，也就是epoll_wait的超时时间。
+2. 默认超时时间为参数设定的超时时间timeout_microseconds，如果最近有时间事件，并且
+   expect time 小于超时时间timeout_microseconds，就把超时时间设置为expect time到
+   当前的时间间隔，并设置trigger_time为true标志，触发后续处理时间事件。
+3. 调用epoll_wait获取事件，并循环调用相应的回调函数处理相应的事件。
+4. 处理到期时间事件
+5. 处理所有的外部事件
+
+在这里，内部事件指的是通过 epoll_wait 获取的事件。外部事件（external event）是其
+它投送的事件，例如处理主动连接，新的发送消息触发事件。
+
+在类EventCenter里定义了两种方式向EventCenter里投递外部事件：
+1. dispatch_event_external
+2. submit_to
+*/
 int EventCenter::process_events(unsigned timeout_microseconds,  ceph::timespan *working_dur)
-{
+{ // timeout_microseconds = 30,000,000
   struct timeval tv;
   int numevents;
   bool trigger_time = false;
@@ -398,13 +424,20 @@ int EventCenter::process_events(unsigned timeout_microseconds,  ceph::timespan *
   }
 
   bool blocking = pollers.empty() && !external_num_events.load();
+  // If exists external events or poller, don't block
   if (!blocking)
     timeout_microseconds = 0;
-  tv.tv_sec = timeout_microseconds / 1000000;
+  tv.tv_sec = timeout_microseconds / 1000000;  //  tv.tv_sec = 30
   tv.tv_usec = timeout_microseconds % 1000000;
 
   ldout(cct, 30) << __func__ << " wait second " << tv.tv_sec << " usec " << tv.tv_usec << dendl;
   std::vector<FiredFileEvent> fired_events;
+
+  // 等待事件触发
+  /*
+  在EpollDriver::event_wait中，如果有就绪事件，则将fd和事件类型（EVENT_READABLE/
+  EVENT_WRITABLE）保存在fired_events。接下来就是处理事件，即回调事件注册函数。
+  */
   numevents = driver->event_wait(fired_events, &tv);
   auto working_start = ceph::mono_clock::now();
   for (int event_id = 0; event_id < numevents; event_id++) {
@@ -469,6 +502,7 @@ void EventCenter::dispatch_event_external(EventCallbackRef e)
     if (external_num_events > 0 && *external_events.rbegin() == e) {
       return;
     }
+    // 将事件加入external_events队列
     external_events.push_back(e);
     num = ++external_num_events;
   }

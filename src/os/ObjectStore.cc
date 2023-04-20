@@ -47,6 +47,24 @@ std::unique_ptr<ObjectStore> ObjectStore::create(
 }
 
 #ifndef WITH_SEASTAR
+/**
+* create - create an ObjectStore instance.
+*
+* This is invoked once at initialization time.
+*
+* @param type 存储引擎类型（BLueStore，FileStore）
+* @param data OSD 数据路径，如/var/lib/ceph/osd0
+* @param journal 日志路径，FileStore 需要提供，BlueStore 不需要提供
+* @param flags which filestores should check if applicable，BlueStore 不需要提供
+* @return ObjectStore 指针
+*/
+/*
+cct=0x555557368000
+, type="bluestore"
+, data="/var/lib/ceph/osd/ceph-admin"
+, journal="/var/lib/ceph/osd/ceph-admin/journal"
+, flags=flags@entry=0
+*/
 std::unique_ptr<ObjectStore> ObjectStore::create(
   CephContext *cct,
   const string& type,
@@ -65,6 +83,16 @@ std::unique_ptr<ObjectStore> ObjectStore::create(
 }
 #endif
 
+
+/**
+* 返回一个 OSD 的 fsid号。即 /var/lib/ceph/osd/fsid 文件中保存的 uuid 序列号
+* probe a block device to learn the uuid of the owning OSD
+*
+* @param cct cct
+* @param path OSD 路径
+* @param fsid [out] OSD fsid 号
+* @return 0 for success, other for failure
+*/
 int ObjectStore::probe_block_device_fsid(
   CephContext *cct,
   const string& path,

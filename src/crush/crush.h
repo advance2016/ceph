@@ -339,7 +339,8 @@ struct crush_bucket_straw2 {
  * A crush map define a hierarchy of crush_bucket that end with leaves
  * (buckets and leaves are called items) and a set of crush_rule to
  * map an integer to items with the crush_do_rule() function.
- *
+ * 定义了静态的所有Cluster Map的bucket。bucket为动态申请的二维数组，保存了
+ * 所有的bucket结构
  */
 struct crush_map {
         /*! An array of crush_bucket pointers of size __max_buckets__.

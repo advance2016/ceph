@@ -44,8 +44,10 @@ void ProtocolV2::run_continuation(CtPtr pcontinuation) {
   }
 }
 
+//continuation参数，表示需要执行的异步回调函数
 void ProtocolV2::run_continuation(CtRef continuation) {
   try {
+    //用于运行异步回调函数并捕获异常
     CONTINUATION_RUN(continuation)
   } catch (const ceph::buffer::error &e) {
     lderr(cct) << __func__ << " failed decoding of frame header: " << e.what()
@@ -1126,6 +1128,7 @@ CtPtr ProtocolV2::handle_read_frame_preamble_main(rx_buffer_t &&buffer, int r) {
   }
 }
 
+//根据接收到的网络数据帧的标签(tag)来选择相应的处理函数
 CtPtr ProtocolV2::handle_read_frame_dispatch() {
   ldout(cct, 10) << __func__
                  << " tag=" << static_cast<uint32_t>(next_tag) << dendl;
@@ -1152,6 +1155,7 @@ CtPtr ProtocolV2::handle_read_frame_dispatch() {
     case Tag::WAIT:
     case Tag::COMPRESSION_REQUEST:
     case Tag::COMPRESSION_DONE:
+      // 处理网络数据帧的payload(负载))部分
       return handle_frame_payload();
     case Tag::MESSAGE:
       return handle_message();
@@ -1351,6 +1355,7 @@ CtPtr ProtocolV2::handle_message() {
   ldout(cct, 20) << __func__ << dendl;
   ceph_assert(state == THROTTLE_DONE);
 
+  //解码接收到的消息帧
   const size_t cur_msg_size = get_current_msg_size();
   auto msg_frame = MessageFrame::Decode(rx_segments_data);
 
@@ -1367,6 +1372,8 @@ CtPtr ProtocolV2::handle_message() {
 		<< " off " << current_header.data_off
                 << dendl;
 
+  //将解码后的消息帧的头部信息封装到 ceph_msg_header2 类型变量 current_header 中，
+  //并将其转化为 ceph_msg_header 类型变量 header。
   INTERCEPT(16);
   ceph_msg_header header{current_header.seq,
                          current_header.tid,
@@ -1384,6 +1391,7 @@ CtPtr ProtocolV2::handle_message() {
   ceph_msg_footer footer{ceph_le32(0), ceph_le32(0),
 	                 ceph_le32(0), ceph_le64(0), current_header.flags};
 
+  //解码消息内容，并将消息内容封装到一个Message对象中。
   Message *message = decode_message(cct, 0, header, footer,
       msg_frame.front(),
       msg_frame.middle(),
@@ -1398,6 +1406,8 @@ CtPtr ProtocolV2::handle_message() {
 
   INTERCEPT(17);
 
+  
+  //对接收到的消息进行一系列处理，包括校验消息序列号、设置字节流和消息流速率控制等。
   message->set_byte_throttler(connection->policy.throttler_bytes);
   message->set_message_throttler(connection->policy.throttler_messages);
 
@@ -1414,6 +1424,7 @@ CtPtr ProtocolV2::handle_message() {
   // client side queueing because messages can't be renumbered, but the (kernel)
   // client will occasionally pull a message out of the sent queue to send
   // elsewhere.  in that case it doesn't matter if we "got" it or not.
+  //  检查接收到的消息的序列号是否正确
   uint64_t cur_seq = in_seq;
   if (message->get_seq() <= cur_seq) {
     ldout(cct, 0) << __func__ << " got old message " << message->get_seq()
@@ -1463,10 +1474,13 @@ CtPtr ProtocolV2::handle_message() {
     need_dispatch_writer = true;
   }
 
+  
+  //根据接收到的消息的类型进行不同的处理
   state = READY;
 
   ceph::mono_time fast_dispatch_time;
 
+  //如果连接对象是一个blackhole，则直接释放该消息并跳转到 out 标签处
   if (connection->is_blackhole()) {
     ldout(cct, 10) << __func__ << " blackhole " << *message << dendl;
     message->put();
@@ -1477,6 +1491,7 @@ CtPtr ProtocolV2::handle_message() {
   connection->logger->inc(l_msgr_recv_bytes,
                           rx_frame_asm.get_frame_onwire_len());
 
+  //进行消息的预处理
   messenger->ms_fast_preprocess(message);
   fast_dispatch_time = ceph::mono_clock::now();
   connection->logger->tinc(l_msgr_running_recv_time,
@@ -1492,6 +1507,7 @@ CtPtr ProtocolV2::handle_message() {
     }
     connection->delay_state->queue(delay_period, message);
   } else if (messenger->ms_can_fast_dispatch(message)) {
+    //如果该消息可以被快速分发，则通过 fast_dispatch() 快速分发该消息
     connection->lock.unlock();
     connection->dispatch_queue->fast_dispatch(message);
     connection->recv_start_time = ceph::mono_clock::now();
@@ -1505,6 +1521,7 @@ CtPtr ProtocolV2::handle_message() {
       return nullptr;
     }
   } else {
+    //否则，将该消息加入到连接对象的消息队列（dispatch_queue）中。
     connection->dispatch_queue->enqueue(message, message->get_priority(),
                                         connection->conn_id);
   }
@@ -1516,6 +1533,8 @@ CtPtr ProtocolV2::handle_message() {
     connection->center->dispatch_event_external(connection->write_handler);
   }
 
+  
+  //返回 CONTINUE(read_frame) 继续读取下一个消息。
   return CONTINUE(read_frame);
 }
 

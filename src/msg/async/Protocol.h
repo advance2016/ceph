@@ -79,6 +79,17 @@ template <class C> using CONTINUATION_RXBPTR_TYPE = CtRxNode<C>;
 #define CONTINUATION(F) F##_cont
 #define CONTINUE(F, ...) (F##_cont.setParams(__VA_ARGS__), &F##_cont)
 
+/*
+宏展开后的代码将定义一个指向异步回调函数的指针_cont，并通过一个do-while循环来反
+复执行异步回调函数，直到该函数返回nullptr为止。在每次循环中，调用call函数执行异
+步回调函数，并将ProtocolV2类的实例作为参数传递给异步回调函数，以便在回调函数中
+访问ProtocolV2实例的成员变量和方法。
+
+在异步回调函数执行过程中，可能会返回一个新的异步回调函数，即继续执行异步回调函
+数链。因此，do-while循环会一直执行直到链条结束。
+
+该宏的作用是简化运行异步回调函数的代码，提高程序的可读性和可维护性。
+*/
 #define CONTINUATION_RUN(CT)                                      \
   {                                                               \
     Ct<std::remove_reference<decltype(*this)>::type> *_cont = &CT;\

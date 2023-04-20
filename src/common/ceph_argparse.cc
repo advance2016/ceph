@@ -66,10 +66,9 @@ void string_to_vec(std::vector<std::string>& args, std::string argstr)
 
 std::pair<std::vector<const char*>, std::vector<const char*>>
 split_dashdash(const std::vector<const char*>& args) {
-  auto dashdash = std::find_if(args.begin(), args.end(),
-			       [](const char* arg) {
-				 return strcmp(arg, "--") == 0;
-			       });
+  auto dashdash = std::find_if(args.begin(), args.end(), [](const char* arg) {
+                      return strcmp(arg, "--") == 0;
+                  });
   std::vector<const char*> options{args.begin(), dashdash};
   if (dashdash != args.end()) {
     ++dashdash;
@@ -486,10 +485,22 @@ bool ceph_argparse_witharg(std::vector<const char*> &args,
   return r != 0;
 }
 
+
+/*
+解析options来获取对应的值：
+   a) -v 展示version
+   b) -c 配置文件
+   c) --cluster cluster
+   d) -i 非client实体的id （**client程序通过-i指定id会无效**）
+   e) --id / --user 设置实体的id，会覆盖-i的选项
+   f)  --name/-n 通过名字来解析设置实体的id， 会覆盖-i 以及 --id/--user
+   g）--show_args 显示参数 ，但是不会exit
+*/
 CephInitParameters ceph_argparse_early_args
 	  (std::vector<const char*>& args, uint32_t module_type,
 	   std::string *cluster, std::string *conf_file_list)
 {
+  //module_type = CEPH_ENTITY_TYPE_MON, *cluster = "", *conf_file_list = ""
   CephInitParameters iparams(module_type);
   std::string val;
 
