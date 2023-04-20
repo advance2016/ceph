@@ -1789,6 +1789,9 @@ void PrimaryLogPG::handle_backoff(OpRequestRef& op)
   session->ack_backoff(cct, m->pgid, m->id, begin, end);
 }
 
+/*
+主要你检查PG的状态，以及根据消息类型进行不同处理
+*/
 void PrimaryLogPG::do_request(
   OpRequestRef& op,
   ThreadPool::TPHandle &handle)
@@ -1800,7 +1803,8 @@ void PrimaryLogPG::do_request(
 
   [[maybe_unused]] auto span = tracing::osd::tracer.add_span(__func__, op->osd_parent_span);
 
-// make sure we have a new enough map
+  // make sure we have a new enough map
+  //检查 osdmap
   auto p = waiting_for_map.find(op->get_source());
   if (p != waiting_for_map.end()) {
     // preserve ordering
@@ -1819,6 +1823,7 @@ void PrimaryLogPG::do_request(
     return;
   }
 
+  //是否可以丢弃
   if (can_discard_request(op)) {
     return;
   }
@@ -1862,6 +1867,9 @@ void PrimaryLogPG::do_request(
 
   if (!is_peered()) {
     // Delay unless PGBackend says it's ok
+    //检查pgbackend是否可以处理这个请求
+    //可以处理，则调用该函数处理
+    //不可以则加入waiting_for_peered队列
     if (pgbackend->can_handle_while_inactive(op)) {
       bool handled = pgbackend->handle_message(op);
       ceph_assert(handled);
@@ -1880,6 +1888,7 @@ void PrimaryLogPG::do_request(
     return;
   }
 
+  //PG处于Peered 并且flushes_in_progress为0的状态下
   ceph_assert(is_peered() && !recovery_state.needs_flush());
   if (pgbackend->handle_message(op))
     return;
@@ -1887,6 +1896,7 @@ void PrimaryLogPG::do_request(
   switch (msg_type) {
   case CEPH_MSG_OSD_OP:
   case CEPH_MSG_OSD_BACKOFF:
+    //该PG状态 为非active状态
     if (!is_active()) {
       dout(20) << " peered, not active, waiting for active on " << op << dendl;
       waiting_for_active.push_back(op);
@@ -1896,6 +1906,7 @@ void PrimaryLogPG::do_request(
     switch (msg_type) {
     case CEPH_MSG_OSD_OP:
       // verify client features
+      //如果是cache pool ，操作没有带CEPH_FEATURE_OSD_CACHEPOOL的feature标志，返回错误信息
       if ((pool.info.has_tiers() || pool.info.is_tier()) &&
 	  !op->has_feature(CEPH_FEATURE_OSD_CACHEPOOL)) {
 	osd->reply_op_error(op, -EOPNOTSUPP);

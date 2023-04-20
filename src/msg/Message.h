@@ -253,6 +253,10 @@ public:
 #endif // WITH_SEASTAR
 
 protected:
+  /*
+  信息头和信息结束标志的结构体。数据则是由三部分组成的，分别是playload（一般保
+  存相关元数据）、middle（留用）、data（读写数据）。
+  */
   ceph_msg_header  header;      // headerelope
   ceph_msg_footer  footer;
   ceph::buffer::list       payload;  // "front" unaligned blob

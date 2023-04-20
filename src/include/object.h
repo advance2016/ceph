@@ -31,7 +31,13 @@
 #include "ceph_hash.h"
 #include "cmp.h"
 
+
+/*
+一个对象就对应本地文件系统中的一个文件, 默认为4MB大小的数据块
+
+*/
 struct object_t {
+  //对象名
   std::string name;
 
   object_t() {}
@@ -161,6 +167,11 @@ inline std::ostream& operator<<(std::ostream& out, const snapid_t& s) {
 }
 
 
+/*
+object_t之上增加了snapshot信息，用于标识是否是快照对象。数据成员snap为快照对象
+的对应的快照序号。如果一个对象不是快照对象（也就是head对象），那么snap字段就被
+设置为CEPH_NOSNAP值。
+*/
 struct sobject_t {
   object_t oid;
   snapid_t snap;

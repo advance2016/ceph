@@ -713,6 +713,13 @@ bool AdminSocket::init(const std::string& path)
   /* Set up things for the new thread */
   std::string err;
   int pipe_rd = -1, pipe_wr = -1;
+  /*
+  创建了管道，读取端的文件描述符记录在m_shutdown_rd_fd中，写入端的文件描述符记录
+  在m_shutdown_wr_fd中。  从变量名字也可以看出，该文件描述符的作用是收取关闭信息。
+  因为adminsocket一旦创建，必须能够通知到该线程及时退出。退出的事情会写入管道的
+  写入端，而线程会通过多路复用接口，监听读取端，一旦发现m_shutdown_rd_fd中读出
+  内容，线程就知道，可以退出了。
+  */
   err = create_wakeup_pipe(&pipe_rd, &pipe_wr);
   if (!err.empty()) {
     lderr(m_cct) << "AdminSocketConfigObs::init: error: " << err << dendl;

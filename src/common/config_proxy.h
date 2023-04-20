@@ -8,6 +8,15 @@
 #include "common/config_obs_mgr.h"
 #include "common/ceph_mutex.h"
 
+/*
+1、如果是set类接口：先通过md_config_t获取option，通过option获取name、类型、默认值、校验等信息，解析value，最后设置到ConfigValues中。
+
+2、如果是get类接口：
+
+    2.1、流程也是从md_config_t到ConfigValues, 如果从ConfigValues不能获取到，则获取Option的默认值
+
+    2.2、md_config_t::expand_meta 解析${var}到实际的值
+*/
 // @c ConfigProxy is a facade of multiple config related classes. it exposes
 // the legacy settings with arrow operator, and the new-style config with its
 // member methods.

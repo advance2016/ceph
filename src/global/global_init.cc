@@ -105,12 +105,19 @@ void global_pre_init(
   std::string cluster = "";
 
   // ensure environment arguments are included in early processing
+  // 环境变里CEPH_ARGS中的选项加入到args中
   env_to_vec(args);
 
+  /*
+  解析options来获取对应的值, 预解释命令行参数，对于只是显示版本号的命令，只把
+  版本号打出来程序就直接可以exit(0)了；对于其他的参数，解释好后放到
+  CephInitParameters里供后面使用。
+  */
   CephInitParameters iparams = ceph_argparse_early_args(
     args, module_type,
     &cluster, &conf_file_list);
 
+  // 主要是实例化new CephContext(iparams.module_type, flags); 
   CephContext *cct = common_preinit(iparams, code_env, flags);
   cct->_conf->cluster = cluster;
   global_init_set_globals(cct);
@@ -132,6 +139,7 @@ void global_pre_init(
     flags |= CINIT_FLAG_NO_DEFAULT_CONFIG_FILE;
   }
 
+  //读取配置文件内容，命令里不指明的话，默认使用/etc/ceph/ceph.conf。
   int ret = conf.parse_config_files(c_str_or_null(conf_file_list),
 				    &cerr, flags);
   if (ret == -EDOM) {

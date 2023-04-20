@@ -712,6 +712,7 @@ CephContext::CephContext(uint32_t module_type_,
 #endif
     crush_location(this)
 {
+  // 创建了成员变量_log
   _log = new ceph::logging::Log(&_conf->subsys);
 
   _log_obs = new LogObs(_log);
@@ -730,6 +731,8 @@ CephContext::CephContext(uint32_t module_type_,
 
   _plugin_registry = new PluginRegistry(this);
 
+  // ceph daemon /var/run/ceph/ceph-osd.4.asok help
+  // 定义了个CephContextHook，注册该Hook也作为一个参数传递进去，该对象本质是一个线程
   _admin_hook = new CephContextHook(this);
   _admin_socket->register_command("assert", _admin_hook, "");
   _admin_socket->register_command("abort", _admin_hook, "");
@@ -849,6 +852,7 @@ void CephContext::start_service_thread()
     if (_service_thread) {
       return;
     }
+    // 开启 service 线程
     _service_thread = new CephContextServiceThread(this);
     _service_thread->create("service");
   }
@@ -866,6 +870,7 @@ void CephContext::start_service_thread()
   _conf.call_all_observers();
 
   // start admin socket
+  // 调用adminsocket的init函数
   if (_conf->admin_socket.length())
     _admin_socket->init(_conf->admin_socket);
 }

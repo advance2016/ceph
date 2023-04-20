@@ -34,6 +34,9 @@ namespace ceph {
 #define INT64_MIN ((int64_t)0x8000000000000000ll)
 #endif
 
+/*
+hash object的缩写, 其在sobject_t的基础上增加了一些字段
+*/
 struct hobject_t {
 public:
   static const int64_t POOL_META = -1;
@@ -53,16 +56,16 @@ public:
   object_t oid;
   snapid_t snap;
 private:
-  uint32_t hash;
+  uint32_t hash;        //hash和key不能同时设置，hash值一般设置为就是pg的id值。
   bool max;
   uint32_t nibblewise_key_cache;
   uint32_t hash_reverse_bits;
 public:
-  int64_t pool;
-  std::string nspace;
+  int64_t pool;         //所在的pool的id
+  std::string nspace;   //一般为空，它用于标识特殊的对象。
 
 private:
-  std::string key;
+  std::string key;      //对象的特殊标记。
 
   class hobject_t_max {};
 
