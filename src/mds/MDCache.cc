@@ -12130,7 +12130,7 @@ void MDCache::dispatch_fragment_dir(const MDRequestRef& mdr, bool abort_if_freez
     // prevent a racing gather on any other scatterlocks too
     lov.lock_scatter_gather(&diri->nestlock);
     lov.lock_scatter_gather(&diri->filelock);
-    if (mds->locker->acquire_locks(mdr, lov, NULL, {}, true)) {
+    if (mds->locker->acquire_locks(mdr, lov, nullptr,  true)) {
       mdr->locking_state |= MutationImpl::ALL_LOCKED;
     } else {
       if (!mdr->aborted) {
@@ -14053,7 +14053,7 @@ void MDCache::dispatch_lock_path(const MDRequestRef& mdr)
     }
   }
 
-  if (!mds->locker->acquire_locks(mdr, lov, nullptr, {in}, false, true)) {
+  if (!mds->locker->acquire_locks(mdr, lov)) {
     return;
   }
 
