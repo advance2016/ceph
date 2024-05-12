@@ -5598,4 +5598,16 @@ void CInode::get_subtree_dirfrags(std::vector<CDir*>& v) const
   }
 }
 
+bool CInode::is_quiesced() const { 
+  if (!quiescelock.is_xlocked()) {
+    return false;
+  }
+  // check that it's the quiesce op that's holding the lock
+  auto mut = quiescelock.get_xlock_by();
+  ceph_assert(mut); /* that would be weird */
+  auto* mdr = dynamic_cast<MDRequestImpl*>(mut.get());
+  ceph_assert(mdr); /* also would be weird */
+  return mdr->internal_op == CEPH_MDS_OP_QUIESCE_INODE;
+}
+
 MEMPOOL_DEFINE_OBJECT_FACTORY(CInode, co_inode, mds_co);

@@ -119,6 +119,7 @@ public:
 
 struct LockPathState {
   std::vector<std::string> locks;
+  CInode* in = nullptr;
 };
 
 struct QuiesceInodeState {
@@ -13968,22 +13969,31 @@ MDRequestRef MDCache::quiesce_path(filepath p, C_MDS_QuiescePath* c, Formatter *
 
 void MDCache::dispatch_lock_path(const MDRequestRef& mdr)
 {
-  CInode* in = nullptr;
   CF_MDS_RetryRequestFactory cf(this, mdr, true);
-  static const int ptflags = 0
-    | MDS_TRAVERSE_DISCOVER
-    | MDS_TRAVERSE_RDLOCK_PATH
-    | MDS_TRAVERSE_WANT_INODE
-    ;
-  int r = path_traverse(mdr, cf, mdr->get_filepath(), ptflags, nullptr, &in);
-  if (r > 0)
-    return;
-  if (r < 0) {
-    mds->server->respond_to_request(mdr, r);
-    return;
+  auto& lps = *static_cast<LockPathState*>(mdr->internal_op_private);
+  CInode* in = lps.in;
+
+  if (!in) {
+    static const int ptflags = 0
+      | MDS_TRAVERSE_DISCOVER
+      | MDS_TRAVERSE_RDLOCK_PATH
+      | MDS_TRAVERSE_WANT_INODE
+      ;
+    int r = path_traverse(mdr, cf, mdr->get_filepath(), ptflags, nullptr, &in);
+    if (r > 0)
+      return;
+    if (r < 0) {
+      mds->server->respond_to_request(mdr, r);
+      return;
+    }
+    lps.in = in;
   }
 
-  auto& lps = *static_cast<LockPathState*>(mdr->internal_op_private);
+  // since we have our inode, let's drop all locks from the traversal,
+  // because ideally, we only want to hold the locks from the command
+  mds->locker->drop_locks(mdr.get());
+
+  mdr->mark_event("acquired target inode");
 
   MutationImpl::LockOpVec lov;
   for (const auto &lock : lps.locks) {
@@ -14047,6 +14057,9 @@ void MDCache::dispatch_lock_path(const MDRequestRef& mdr)
     return;
   }
 
+  mdr->mark_event("object locked");
+  // go stealth
+  mdr->drop_local_auth_pins();
   /* deliberately leak until killed */
 }
 

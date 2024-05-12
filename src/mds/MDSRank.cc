@@ -3550,14 +3550,18 @@ int MDSRank::command_lock_path(Formatter* f, const cmdmap_t& cmdmap, std::ostrea
   std::vector<std::string> locks;
   cmd_getval(cmdmap, "locks", locks);
 
+  int rc = 0;
   f->open_object_section("lock");
   {
     std::lock_guard l(mds_lock);
     auto mdr = mdcache->lock_path(filepath(path), locks);
     f->dump_object("op", *mdr);
+    if (mdr->result) {
+      rc = *mdr->result;
+    }
   }
   f->close_section();
-  return 0;
+  return rc;
 }
 
 void MDSRank::command_dump_inode(Formatter *f, const cmdmap_t &cmdmap, std::ostream &ss)
